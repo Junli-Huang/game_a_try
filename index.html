@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <meta name="theme-color" content="#132238" />
+    <title>Tiny Signal</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main class="game-shell" aria-label="Tiny Signal 最小游戏">
+      <canvas id="game" width="960" height="540"></canvas>
+      <div class="hint" id="hint">方向键 / WASD / 触摸屏幕移动</div>
+      <button id="restart" type="button" hidden>再玩一次</button>
+    </main>
+    <script type="module" src="./game.js"></script>
+  </body>
+</html>
