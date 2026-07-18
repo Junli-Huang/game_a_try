@@ -1,5 +1,5 @@
 export const DEFAULT_CONFIG = {
-  version: 1,
+  version: '1.1.1',
   global: {
     maxHealth: 100,
     maxHunger: 100,
@@ -19,6 +19,7 @@ export const DEFAULT_CONFIG = {
     health: 100,
     hunger: 82,
     madness: 0,
+    speed: 10,
     radius: 16,
     moveSpeed: 165,
     baseAttack: 10,
@@ -32,27 +33,27 @@ export const DEFAULT_CONFIG = {
   monsters: [
     {
       id: 'passive', name: '静默菌兽', color: '#8ac58a', health: 24, attack: 0,
-      defense: 0, actionSpeed: 1, canMove: false, canWander: false,
+      defense: 0, speed: 4, actionSpeed: 1, canMove: false, canWander: false,
       actionChance: 0, maxMovesPerTurn: 0, wanderRadius: 0,
-      hostile: false, detectRange: 0, canChase: false,
+      hostile: false, detectRange: 0, detectRadius: 0, alertDuration: 0, attackIntentRange: 0, canChase: false,
       maxChaseDistance: 0, maxHomeDistance: 0, returnHome: false,
       disengageCooldownTurns: 1, canHarvest: true,
       harvestTurns: 2, meatYield: 2, carriedLoot: []
     },
     {
       id: 'wanderer', name: '游荡者', color: '#e5a65c', health: 42, attack: 8,
-      defense: 1, actionSpeed: 1, canMove: true, canWander: true,
+      defense: 1, speed: 8, actionSpeed: 1, canMove: true, canWander: true,
       actionChance: 0.72, maxMovesPerTurn: 1, wanderRadius: 4,
-      hostile: true, detectRange: 3, canChase: true,
+      hostile: true, detectRange: 3, detectRadius: 3, alertDuration: 2, attackIntentRange: 1, canChase: true,
       maxChaseDistance: 5, maxHomeDistance: 6, returnHome: true,
       disengageCooldownTurns: 2, canHarvest: true,
       harvestTurns: 3, meatYield: 3, carriedLoot: []
     },
     {
       id: 'tracker', name: '寻迹者', color: '#d56878', health: 65, attack: 13,
-      defense: 2, actionSpeed: 1.2, canMove: true, canWander: false,
+      defense: 2, speed: 12, actionSpeed: 1.2, canMove: true, canWander: false,
       actionChance: 1, maxMovesPerTurn: 1, wanderRadius: 3,
-      hostile: true, detectRange: 5, canChase: true,
+      hostile: true, detectRange: 5, detectRadius: 5, alertDuration: 1, attackIntentRange: 1, canChase: true,
       maxChaseDistance: 8, maxHomeDistance: 7, returnHome: true,
       disengageCooldownTurns: 3, canHarvest: true,
       harvestTurns: 4, meatYield: 5, carriedLoot: []
@@ -99,7 +100,15 @@ export const DEFAULT_CONFIG = {
     failedEscapeEnemyAttack: true,
     defenseDamageReduction: 0.5,
     allowFoodInBattle: true,
-    victoryPlayerMovesIntoEnemyTile: true
+    victoryPlayerMovesIntoEnemyTile: true,
+    useSpeedOrder: true,
+    battleTransition: true,
+    battleResultDelay: 2
+  },
+  ui: {
+    showEnemyAlert: true,
+    showAttackIntent: true,
+    highlightInteract: true
   },
   farming: [
     { id: 'shelter_crop', name: '灰麦', growthCycles: 2, seedCost: 1, yieldItem: 'safe_food', yieldCount: 3, allowShelter: true, allowOutdoor: false }
