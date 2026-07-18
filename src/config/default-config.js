@@ -4,9 +4,11 @@ export const DEFAULT_CONFIG = {
     maxHealth: 100,
     maxHunger: 100,
     maxMadness: 100,
-    hungerDrainPerSecond: 1.1,
-    starvationDamagePerSecond: 7,
-    extractDuration: 3,
+    hungerCostPerMove: 1,
+    hungerCostPerBattleRound: 1,
+    hungerCostPerHarvestRound: 1,
+    hungerCostPerWait: 1,
+    starvationDamagePerAction: 6,
     loseLootOnDeath: true,
     keepEquipmentOnDeath: true,
     keepMadnessOnDeath: true,
@@ -30,33 +32,30 @@ export const DEFAULT_CONFIG = {
   monsters: [
     {
       id: 'passive', name: '静默菌兽', color: '#8ac58a', health: 24, attack: 0,
-      radius: 17, moveSpeed: 0, attackRange: 0, attackCooldown: 1.5,
-      canMove: false, canWander: false, wanderRadius: 0, wanderInterval: 3,
-      wanderSpeedMultiplier: 1, hostile: false, detectRadius: 0,
-      loseTargetRadius: 0, loseTargetDelay: 0, canChase: false,
-      maxChaseDistance: 0, maxHomeDistance: 0, chaseSpeedMultiplier: 1,
-      returnHome: false, returnSpeedMultiplier: 1, canHarvest: true,
-      harvestDuration: 2, meatYield: 2, carriedLoot: []
+      defense: 0, actionSpeed: 1, canMove: false, canWander: false,
+      actionChance: 0, maxMovesPerTurn: 0, wanderRadius: 0,
+      hostile: false, detectRange: 0, canChase: false,
+      maxChaseDistance: 0, maxHomeDistance: 0, returnHome: false,
+      disengageCooldownTurns: 1, canHarvest: true,
+      harvestTurns: 2, meatYield: 2, carriedLoot: []
     },
     {
       id: 'wanderer', name: '游荡者', color: '#e5a65c', health: 42, attack: 8,
-      radius: 18, moveSpeed: 52, attackRange: 33, attackCooldown: 1.15,
-      canMove: true, canWander: true, wanderRadius: 105, wanderInterval: 2.4,
-      wanderSpeedMultiplier: 0.72, hostile: true, detectRadius: 138,
-      loseTargetRadius: 220, loseTargetDelay: 2, canChase: true,
-      maxChaseDistance: 175, maxHomeDistance: 215, chaseSpeedMultiplier: 1.15,
-      returnHome: true, returnSpeedMultiplier: 1.25, canHarvest: true,
-      harvestDuration: 3, meatYield: 3, carriedLoot: []
+      defense: 1, actionSpeed: 1, canMove: true, canWander: true,
+      actionChance: 0.72, maxMovesPerTurn: 1, wanderRadius: 4,
+      hostile: true, detectRange: 3, canChase: true,
+      maxChaseDistance: 5, maxHomeDistance: 6, returnHome: true,
+      disengageCooldownTurns: 2, canHarvest: true,
+      harvestTurns: 3, meatYield: 3, carriedLoot: []
     },
     {
       id: 'tracker', name: '寻迹者', color: '#d56878', health: 65, attack: 13,
-      radius: 20, moveSpeed: 60, attackRange: 36, attackCooldown: 1.35,
-      canMove: true, canWander: false, wanderRadius: 75, wanderInterval: 3,
-      wanderSpeedMultiplier: 0.6, hostile: true, detectRadius: 215,
-      loseTargetRadius: 315, loseTargetDelay: 2.4, canChase: true,
-      maxChaseDistance: 310, maxHomeDistance: 255, chaseSpeedMultiplier: 1.12,
-      returnHome: true, returnSpeedMultiplier: 1.35, canHarvest: true,
-      harvestDuration: 4, meatYield: 5, carriedLoot: []
+      defense: 2, actionSpeed: 1.2, canMove: true, canWander: false,
+      actionChance: 1, maxMovesPerTurn: 1, wanderRadius: 3,
+      hostile: true, detectRange: 5, canChase: true,
+      maxChaseDistance: 8, maxHomeDistance: 7, returnHome: true,
+      disengageCooldownTurns: 3, canHarvest: true,
+      harvestTurns: 4, meatYield: 5, carriedLoot: []
     }
   ],
   foods: [
@@ -75,21 +74,33 @@ export const DEFAULT_CONFIG = {
   ],
   maps: [
     {
-      id: 'outdoor_01', name: '雾蚀林缘', width: 960, height: 540,
-      playerSpawn: { x: 95, y: 285 },
-      extractPoint: { x: 885, y: 92, radius: 48 },
+      id: 'outdoor_01', name: '雾蚀林缘', width: 20, height: 20,
+      allowDiagonalMove: false,
+      fogOfWar: { enabled: true, visionRadius: 3, shape: 'square', terrainBlocksVision: false, exploredBrightness: 0.38, showEnemyMemory: true, showCorpseMemory: true },
+      playerSpawn: { x: 1, y: 10 },
+      extractPoint: { x: 18, y: 2, requiredTurns: 3 },
       monsterSpawns: [
-        { monsterId: 'passive', x: 270, y: 180, count: 2, spread: 45 },
-        { monsterId: 'wanderer', x: 510, y: 310, count: 2, spread: 70 },
-        { monsterId: 'tracker', x: 750, y: 360, count: 1, spread: 35 }
+        { monsterId: 'passive', x: 5, y: 6, count: 2 },
+        { monsterId: 'wanderer', x: 10, y: 12, count: 2 },
+        { monsterId: 'tracker', x: 15, y: 15, count: 1 }
       ],
       obstacles: [
-        { x: 360, y: 70, width: 110, height: 45 },
-        { x: 590, y: 420, width: 145, height: 38 },
-        { x: 675, y: 125, width: 58, height: 105 }
+        { x: 4, y: 3 }, { x: 5, y: 3 }, { x: 6, y: 3 },
+        { x: 8, y: 7 }, { x: 8, y: 8 }, { x: 8, y: 9 },
+        { x: 12, y: 15 }, { x: 13, y: 15 }, { x: 14, y: 15 },
+        { x: 16, y: 5 }, { x: 16, y: 6 }, { x: 16, y: 7 }
       ]
     }
   ],
+  battle: {
+    playerActions: ['attack', 'defend', 'eat', 'escape'],
+    initiatorActsFirst: true,
+    baseEscapeChance: 0.55,
+    failedEscapeEnemyAttack: true,
+    defenseDamageReduction: 0.5,
+    allowFoodInBattle: true,
+    victoryPlayerMovesIntoEnemyTile: true
+  },
   farming: [
     { id: 'shelter_crop', name: '灰麦', growthCycles: 2, seedCost: 1, yieldItem: 'safe_food', yieldCount: 3, allowShelter: true, allowOutdoor: false }
   ],
