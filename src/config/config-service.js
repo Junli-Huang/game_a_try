@@ -43,11 +43,11 @@ export class ConfigService {
   validateConfig(config) {
     const errors = [];
     if (!config || typeof config !== 'object') return { valid: false, errors: ['配置根节点必须是对象'] };
-    const required = ['global', 'player', 'monsters', 'foods', 'madnessStages', 'equipment', 'maps', 'farming'];
+    const required = ['global', 'player', 'monsters', 'foods', 'madnessStages', 'equipment', 'maps', 'farming', 'battle'];
     required.forEach((key) => { if (!(key in config)) errors.push(`缺少配置分类：${key}`); });
     if (errors.length) return { valid: false, errors };
 
-    ['maxHealth', 'maxHunger', 'maxMadness', 'extractDuration'].forEach((key) => {
+    ['maxHealth', 'maxHunger', 'maxMadness'].forEach((key) => {
       if (!isFiniteNumber(config.global[key]) || config.global[key] <= 0) errors.push(`global.${key} 必须大于 0`);
     });
     ['health', 'hunger', 'moveSpeed', 'baseAttack', 'attackRange', 'attackCooldown', 'inventoryCapacity'].forEach((key) => {
@@ -68,11 +68,10 @@ export class ConfigService {
     uniqueIds(config.equipment, 'equipment');
 
     config.monsters.forEach((monster) => {
-      ['health', 'moveSpeed', 'attackRange', 'attackCooldown', 'harvestDuration', 'meatYield'].forEach((key) => {
+      ['health', 'actionChance', 'maxMovesPerTurn', 'harvestTurns', 'meatYield'].forEach((key) => {
         if (!isFiniteNumber(monster[key]) || monster[key] < 0) errors.push(`${monster.id}.${key} 必须是非负数`);
       });
-      if (monster.canChase && monster.maxChaseDistance < monster.attackRange) errors.push(`${monster.name}：最大追踪距离不能小于攻击距离`);
-      if (monster.detectRadius > monster.loseTargetRadius && monster.hostile) errors.push(`${monster.name}：丢失目标距离不能小于感知距离`);
+      if (monster.canChase && monster.maxChaseDistance < monster.detectRange) errors.push(`${monster.name}：最大追踪距离不能小于感知距离`);
     });
 
     const sortedStages = [...config.madnessStages].sort((a, b) => a.min - b.min);
@@ -85,6 +84,8 @@ export class ConfigService {
       const inside = (point) => point.x >= 0 && point.y >= 0 && point.x <= map.width && point.y <= map.height;
       if (!inside(map.playerSpawn)) errors.push(`${map.name}：玩家出生点超出地图边界`);
       if (!inside(map.extractPoint)) errors.push(`${map.name}：撤离点超出地图边界`);
+      if (map.width !== 20 || map.height !== 20) errors.push(`${map.name}：V1.1 地图必须为 20×20`);
+      if (!map.fogOfWar || map.fogOfWar.visionRadius < 1) errors.push(`${map.name}：视野半径必须大于 0`);
       map.monsterSpawns.forEach((spawn) => {
         if (!monsterIds.has(spawn.monsterId)) errors.push(`${map.name} 引用了不存在的怪物：${spawn.monsterId}`);
         if (!inside(spawn)) errors.push(`${map.name} 的怪物出生点超出边界`);
