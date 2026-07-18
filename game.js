@@ -1,5 +1,5 @@
 import { ConfigService, SAVE_STORAGE_KEY, createInitialSave, loadSave, persistSave } from './src/config/config-service.js';
-import { GameRuntime } from './src/game-runtime.js';
+import { GridExplorationRuntime } from './src/game-runtime.js';
 
 const app = document.querySelector('#app');
 const fileInput = document.querySelector('#config-file');
@@ -32,7 +32,14 @@ const labels = {
   extractPoint: '撤离点', monsterSpawns: '怪物出生点', monsterId: '怪物 ID', count: '数量', spread: '散布范围',
   obstacles: '障碍物', x: 'X', y: 'Y', growthCycles: '生长周期（外出次数）', seedCost: '播种消耗',
   yieldItem: '产出物 ID', yieldCount: '产出数量', allowShelter: '允许庇护所种植', initialSafeFood: '初始安全食物',
-  initialMonsterMeat: '初始怪物肉'
+  initialMonsterMeat: '初始怪物肉', battle: '回合制战斗', fogOfWar: '战争迷雾', visionRadius: '视野半径', shape: '视野形状',
+  terrainBlocksVision: '地形遮挡视野', exploredBrightness: '已探索亮度', showEnemyMemory: '显示敌人记忆', showCorpseMemory: '显示尸体记忆',
+  allowDiagonalMove: '允许斜向移动', requiredTurns: '所需行动回合', actionChance: '每回合行动概率', maxMovesPerTurn: '每回合最大移动格',
+  detectRange: '地图感知距离', disengageCooldownTurns: '脱战冷却回合', harvestTurns: '切割回合', playerActions: '玩家行动',
+  initiatorActsFirst: '主动接敌方先手', baseEscapeChance: '基础逃跑概率', failedEscapeEnemyAttack: '逃跑失败立即受击',
+  defenseDamageReduction: '防御减伤比例', allowFoodInBattle: '战斗中允许食物', victoryPlayerMovesIntoEnemyTile: '胜利后进入敌人格',
+  hungerCostPerMove: '移动饥饿消耗', hungerCostPerBattleRound: '战斗回合饥饿消耗', hungerCostPerHarvestRound: '切割回合饥饿消耗',
+  hungerCostPerWait: '等待回合饥饿消耗', starvationDamagePerAction: '饥饿伤害/行动'
 };
 
 function button(label, action, className = '') {
@@ -138,36 +145,35 @@ function eatInShelter(itemId) {
 function startExpedition() {
   app.innerHTML = `
     <section class="game-screen">
-      <canvas id="game" width="960" height="540"></canvas>
+      <div class="exploration-layout"><canvas id="game" width="760" height="760"></canvas><aside class="exploration-side">
+        <span class="eyebrow">OUTDOOR_EXPLORATION</span><h3>${config.maps[0].name}</h3>
+        <p>亮色是当前视野，暗色是最后记忆，黑色区域尚未探索。</p>
+        <div class="legend"><span><i class="player-dot"></i>玩家</span><span><i class="enemy-dot"></i>敌人</span><span><i class="corpse-dot"></i>尸体</span><span><i class="extract-dot"></i>撤离</span></div>
+        <div id="turn-message" class="turn-message"></div>
+        <div class="explore-actions">${button('原地等待', 'wait')}${button('交互 / 切割 / 撤离', 'interact', 'primary')}</div>
+        <small>WASD / 方向键移动，也可以点击相邻格</small>
+      </aside></div>
       <div class="hud">
         <div class="hud-bars">
           <label>生命 <span id="health-label"></span><i><b id="health-bar"></b></i></label>
           <label>饥饿 <span id="hunger-label"></span><i><b id="hunger-bar"></b></i></label>
           <label>疯狂 <span id="madness-label"></span><i><b id="madness-bar"></b></i></label>
         </div>
-        <div class="hud-info"><span>攻击 <b id="attack-label"></b></span><span>肉块 <b id="meat-label"></b> / ${config.player.inventoryCapacity}</span></div>
+        <div class="hud-info"><span>回合 <b id="turn-label"></b></span><span>坐标 <b id="position-label"></b></span><span>攻击 <b id="attack-label"></b></span><span>肉块 <b id="meat-label"></b> / ${config.player.inventoryCapacity}</span></div>
       </div>
-      <div id="game-message" class="game-message"></div>
-      <div id="action-progress" class="action-progress" hidden><span></span><i><b></b></i></div>
-      <div class="game-actions">
-        ${button('攻击', 'attack', 'attack-button')}
-        ${button('长按交互', 'interact', 'interact-button')}
-        ${button('吃怪物肉', 'eat-meat', 'eat-button')}
-      </div>
+      <div id="battle-layer" class="battle-layer" hidden></div>
       <div class="mobile-pad"><button data-dir="0,-1">▲</button><button data-dir="-1,0">◀</button><button data-dir="1,0">▶</button><button data-dir="0,1">▼</button></div>
     </section>`;
-  runtime = new GameRuntime(document.querySelector('#game'), config, save, {
+  runtime = new GridExplorationRuntime(document.querySelector('#game'), config, save, {
     onHud: updateHud,
+    onBattle: renderBattle,
+    onBattleEnd: () => { const layer = document.querySelector('#battle-layer'); if (layer) layer.hidden = true; },
     onComplete: (nextSave, success) => { save = nextSave; persistSave(save); renderShelter(); toast(success ? '撤离成功，搜集物已入库' : '外出失败，你失去了本次搜集物'); }
   });
-  bindActions(app, { attack: () => runtime.attack(), 'eat-meat': () => runtime.eat('monster_meat') });
-  const interact = app.querySelector('[data-action="interact"]');
-  ['pointerdown', 'touchstart'].forEach((name) => interact.addEventListener(name, (event) => { event.preventDefault(); runtime.setInteract(true); }));
-  ['pointerup', 'pointercancel', 'pointerleave', 'touchend'].forEach((name) => interact.addEventListener(name, () => runtime.setInteract(false)));
+  bindActions(app, { wait: () => runtime.wait(), interact: () => runtime.interact() });
   app.querySelectorAll('[data-dir]').forEach((element) => {
     const [dx, dy] = element.dataset.dir.split(',').map(Number);
-    element.addEventListener('pointerdown', () => runtime.setVirtualDirection(dx, dy));
-    ['pointerup', 'pointercancel', 'pointerleave'].forEach((name) => element.addEventListener(name, () => runtime.clearVirtualDirection()));
+    element.addEventListener('click', () => runtime.movePlayer(dx, dy));
   });
   runtime.start();
 }
@@ -176,17 +182,32 @@ function updateHud(hud) {
   const set = (id, value) => { const node = document.querySelector(id); if (node) node.textContent = value; };
   const width = (id, value, max) => { const node = document.querySelector(id); if (node) node.style.width = `${Math.max(0, value / max * 100)}%`; };
   set('#health-label', hud.health); set('#hunger-label', hud.hunger); set('#madness-label', `${hud.madness} · ${hud.madnessState}`);
-  set('#attack-label', hud.attack); set('#meat-label', hud.meat);
+  set('#attack-label', hud.attack); set('#meat-label', hud.meat); set('#turn-label', hud.turn); set('#position-label', hud.position);
   width('#health-bar', hud.health, config.global.maxHealth); width('#hunger-bar', hud.hunger, config.global.maxHunger); width('#madness-bar', hud.madness, config.global.maxMadness);
-  const message = document.querySelector('#game-message'); if (message) { message.textContent = hud.message; message.classList.toggle('visible', Boolean(hud.message)); }
-  const progress = document.querySelector('#action-progress');
-  if (progress) { progress.hidden = !hud.action; if (hud.action) { progress.querySelector('span').textContent = hud.action.label; progress.querySelector('b').style.width = `${hud.action.progress * 100}%`; } }
+  const message = document.querySelector('#turn-message'); if (message) message.textContent = hud.message;
+}
+
+function renderBattle(view, act) {
+  const layer = document.querySelector('#battle-layer');
+  if (!layer) return;
+  const names = { attack: '攻击', defend: '防御', eat: `吃怪物肉（${view.player.meat}）`, escape: `逃跑（${Math.round(config.battle.baseEscapeChance * 100)}%）` };
+  layer.hidden = false;
+  layer.innerHTML = `<section class="battle-screen">
+    <header><div><span class="eyebrow">BATTLE · ROUND ${view.round}</span><h2>${view.initiator === 'player' ? '主动狩猎' : '遭遇伏击'}</h2></div><span>战斗结束后返回原地图</span></header>
+    <div class="combatants">
+      <article class="combatant player-combatant"><div class="combatant-art">猎</div><h3>幸存者</h3><strong>${view.player.health} / ${view.player.maxHealth} HP</strong><i><b style="width:${view.player.health / view.player.maxHealth * 100}%"></b></i><small>攻击 ${view.player.attack} · 饥饿 ${view.player.hunger} · 疯狂 ${view.player.madness}</small></article>
+      <div class="versus">VS</div>
+      <article class="combatant enemy-combatant"><div class="combatant-art" style="--enemy:${view.enemy.color}">异</div><h3>${view.enemy.name}</h3><strong>${view.enemy.health} / ${view.enemy.maxHealth} HP</strong><i><b style="width:${view.enemy.health / view.enemy.maxHealth * 100}%"></b></i><small>攻击 ${view.enemy.attack}</small></article>
+    </div>
+    <div class="battle-bottom"><div class="battle-log">${view.log.map((line) => `<p>${line}</p>`).join('')}</div><div class="battle-actions">${view.actions.map((action) => `<button data-battle-action="${action}" ${action === 'eat' && view.player.meat <= 0 ? 'disabled' : ''}>${names[action]}</button>`).join('')}</div></div>
+  </section>`;
+  layer.querySelectorAll('[data-battle-action]').forEach((button) => button.addEventListener('click', () => act(button.dataset.battleAction)));
 }
 
 const categoryDescriptions = {
   global: '控制整局规则、上限、消耗与失败结算。', player: '玩家初始能力，不修改正在进行中的角色。', monsters: '三种预设共用同一状态机，差异完全来自参数。',
   foods: '定义食物恢复与污染效果。', madnessStages: '定义疯狂阈值和攻击倍率。', equipment: '定义默认装备提供的能力。',
-  maps: '定义出生点、撤离点、刷怪点与障碍物。', farming: '定义作物周期与产出。', shelter: '定义新存档的初始库存。'
+  maps: '定义 20×20 地图、迷雾、出生点、撤离点、刷怪点与障碍物。', battle: '定义独立回合制战斗、先手、防御与逃跑规则。', farming: '定义作物周期与产出。', shelter: '定义新存档的初始库存。'
 };
 
 function renderConfig() {
@@ -217,7 +238,28 @@ function renderConfigFields() {
   root.innerHTML = Array.isArray(value)
     ? `<div class="array-editor">${value.map((item, index) => `<article class="config-card"><header><strong>${item.name || item.state || item.id || `项目 ${index + 1}`}</strong><span>#${index + 1}</span></header>${renderObjectFields(item, `${activeCategory}.${index}`)}</article>`).join('')}</div>`
     : `<article class="config-card single">${renderObjectFields(value, activeCategory)}</article>`;
+  if (activeCategory === 'maps') root.insertAdjacentHTML('afterbegin', renderMapPreview(configDraft.maps[0]));
   bindConfigInputs(root);
+  if (activeCategory === 'maps') bindMapPreview();
+}
+
+function renderMapPreview(map) {
+  const obstacleSet = new Set(map.obstacles.map((item) => `${item.x},${item.y}`));
+  const spawnMap = new Map(map.monsterSpawns.map((item) => [`${item.x},${item.y}`, item.monsterId]));
+  return `<article class="map-preview-card"><header><div><strong>20×20 配置预览</strong><small>这是关卡配置，不是运行时 GM 工具</small></div><select id="map-brush"><option value="obstacle">障碍</option><option value="spawn">玩家出生点</option><option value="extract">撤离点</option>${configDraft.monsters.map((item) => `<option value="monster:${item.id}">怪物：${item.name}</option>`).join('')}<option value="erase">删除</option></select></header><div class="map-preview-grid">${Array.from({ length: map.width * map.height }, (_, index) => { const x = index % map.width, y = Math.floor(index / map.width), key = `${x},${y}`; let type = obstacleSet.has(key) ? 'obstacle' : ''; if (map.playerSpawn.x === x && map.playerSpawn.y === y) type = 'spawn'; if (map.extractPoint.x === x && map.extractPoint.y === y) type = 'extract'; if (spawnMap.has(key)) type = `monster ${spawnMap.get(key)}`; return `<button class="${type}" data-map-x="${x}" data-map-y="${y}" title="(${x},${y})"></button>`; }).join('')}</div></article>`;
+}
+
+function bindMapPreview() {
+  document.querySelectorAll('[data-map-x]').forEach((cell) => cell.addEventListener('click', () => {
+    const map = configDraft.maps[0], x = Number(cell.dataset.mapX), y = Number(cell.dataset.mapY), brush = document.querySelector('#map-brush').value;
+    const clear = () => { map.obstacles = map.obstacles.filter((item) => item.x !== x || item.y !== y); map.monsterSpawns = map.monsterSpawns.filter((item) => item.x !== x || item.y !== y); };
+    clear();
+    if (brush === 'obstacle') map.obstacles.push({ x, y });
+    else if (brush === 'spawn') map.playerSpawn = { x, y };
+    else if (brush === 'extract') map.extractPoint = { ...map.extractPoint, x, y };
+    else if (brush.startsWith('monster:')) map.monsterSpawns.push({ monsterId: brush.split(':')[1], x, y, count: 1 });
+    renderConfigFields();
+  }));
 }
 
 function renderObjectFields(object, path) {
