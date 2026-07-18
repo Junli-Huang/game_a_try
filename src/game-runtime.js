@@ -67,7 +67,8 @@ export class GridExplorationRuntime {
         monsters.push({
           id: `${config.id}-${monsters.length}`, config, x: position.x, y: position.y,
           homeX: position.x, homeY: position.y, health: config.health,
-          state: config.canWander ? 'Wander' : 'Idle', cooldownTurns: 0
+          state: config.canWander ? 'Wander' : 'Idle', cooldownTurns: 0,
+          alertTurns: 0, intent: null
         });
       }
     });
@@ -154,6 +155,18 @@ export class GridExplorationRuntime {
     this.render();
   }
 
+  getInteraction() {
+    const corpse = this.corpseAt(this.player.x, this.player.y);
+    if (corpse) {
+      const full = this.player.loot.monsterMeat >= this.config.player.inventoryCapacity;
+      return { type: 'harvest', label: full ? '背包已满' : '切割尸体', enabled: !full, tone: 'danger' };
+    }
+    if (this.player.x === this.mapConfig.extractPoint.x && this.player.y === this.mapConfig.extractPoint.y) {
+      return { type: 'extract', label: '开始撤离', enabled: true, tone: 'gold' };
+    }
+    return { type: null, label: '暂无交互', enabled: false, tone: 'muted' };
+  }
+
   harvest(corpse) {
     const turns = Math.max(1, corpse.config.harvestTurns);
     this.setMessage(`开始切割，需要 ${turns} 个地图回合。`);
@@ -196,14 +209,32 @@ export class GridExplorationRuntime {
 
   updateMonster(monster) {
     const cfg = monster.config;
-    if (monster.cooldownTurns > 0) { monster.cooldownTurns -= 1; return; }
-    if (!cfg.canMove || Math.random() > cfg.actionChance) return;
+    monster.intent = null;
+    if (monster.cooldownTurns > 0) {
+      monster.cooldownTurns -= 1;
+      if (monster.cooldownTurns === 0) monster.state = cfg.canWander ? 'Wander' : 'Idle';
+      return;
+    }
     const playerDistance = manhattan(monster, this.player);
     const homeDistance = manhattan(monster, { x: monster.homeX, y: monster.homeY });
-    if (cfg.hostile && cfg.canChase && playerDistance <= cfg.detectRange && homeDistance <= cfg.maxHomeDistance) monster.state = 'Chase';
-    if (monster.state === 'Chase' && (playerDistance > cfg.maxChaseDistance || homeDistance > cfg.maxHomeDistance)) monster.state = cfg.returnHome ? 'Return' : 'Idle';
+    const detectRadius = cfg.detectRadius ?? cfg.detectRange;
+    if (cfg.hostile && cfg.canChase && playerDistance <= detectRadius && homeDistance <= cfg.maxHomeDistance && !['Alert', 'Chase', 'AttackIntent'].includes(monster.state)) {
+      monster.state = 'Alert';
+      monster.alertTurns = Math.max(1, cfg.alertDuration || 1);
+      this.notify('alert', monster, '附近的怪物似乎察觉到了你的存在。');
+      return;
+    }
+    if (monster.state === 'Alert') {
+      monster.alertTurns -= 1;
+      if (monster.alertTurns <= 0) {
+        monster.state = 'Chase';
+        this.notify('chase', monster, `危险！${cfg.name}正在接近。`);
+      } else return;
+    }
+    if (['Chase', 'AttackIntent'].includes(monster.state) && (playerDistance > cfg.maxChaseDistance || homeDistance > cfg.maxHomeDistance)) monster.state = cfg.returnHome ? 'Return' : 'Idle';
+    if (!cfg.canMove || Math.random() > cfg.actionChance) return;
     let target = null;
-    if (monster.state === 'Chase') target = this.bestStepToward(monster, this.player);
+    if (['Chase', 'AttackIntent'].includes(monster.state)) target = this.bestStepToward(monster, this.player);
     else if (monster.state === 'Return') {
       target = this.bestStepToward(monster, { x: monster.homeX, y: monster.homeY });
       if (homeDistance === 0) monster.state = cfg.canWander ? 'Wander' : 'Idle';
@@ -213,8 +244,23 @@ export class GridExplorationRuntime {
       target = choices[Math.floor(Math.random() * choices.length)];
     }
     if (!target) return;
-    if (target.x === this.player.x && target.y === this.player.y) return this.startBattle(monster, 'enemy');
+    if (target.x === this.player.x && target.y === this.player.y) {
+      if (monster.state !== 'AttackIntent') {
+        monster.state = 'AttackIntent';
+        monster.intent = { action: 'attackPlayer', dx: this.player.x - monster.x, dy: this.player.y - monster.y };
+        this.notify('attack-intent', monster, '它盯上你了。下一回合将会接敌。');
+        return;
+      }
+      return this.startBattle(monster, 'enemy');
+    }
     if (!this.monsterAt(target.x, target.y)) { monster.x = target.x; monster.y = target.y; }
+  }
+
+  notify(type, monster, message) {
+    const enabled = type === 'attack-intent' ? this.config.ui.showAttackIntent : this.config.ui.showEnemyAlert;
+    if (!enabled) return;
+    this.setMessage(message);
+    this.callbacks.onNotice?.({ type, message, enemy: monster.config.name });
   }
 
   neighbors(x, y) {
@@ -227,17 +273,33 @@ export class GridExplorationRuntime {
 
   startBattle(monster, initiator) {
     if (this.mode !== 'OUTDOOR_EXPLORATION') return;
-    this.mode = 'BATTLE';
-    this.battle = { monster, initiator, round: 1, defending: false, log: [`${initiator === 'player' ? '你主动逼近了' : '雾中伏击！'}${monster.config.name}。`] };
-    if (initiator === 'enemy' && this.config.battle.initiatorActsFirst) {
-      this.enemyAttack();
-      this.battle.log.push('敌人抢得先手。');
-    }
-    this.emitBattle();
+    this.mode = this.config.battle.battleTransition ? 'BATTLE_TRANSITION' : 'BATTLE';
+    const playerSpeed = this.config.player.speed || 0;
+    const enemySpeed = monster.config.speed || 0;
+    const enemyFirst = this.config.battle.useSpeedOrder
+      ? enemySpeed > playerSpeed
+      : initiator === 'enemy' && this.config.battle.initiatorActsFirst;
+    this.battle = { monster, initiator, round: 1, defending: false, enemyFirst, playerTurn: false,
+      log: [`遭遇 ${monster.config.name}。`, `速度：你 ${playerSpeed} / 敌人 ${enemySpeed}，${enemyFirst ? '敌人' : '你'}先行动。`] };
+    const enter = () => {
+      if (!this.battle) return;
+      this.mode = 'BATTLE';
+      if (enemyFirst) {
+        this.battle.log.push('敌人正在行动…');
+        this.enemyAttack();
+        if (this.player.health <= 0) return this.loseBattle();
+      }
+      this.battle.playerTurn = true;
+      this.emitBattle();
+    };
+    if (this.config.battle.battleTransition && this.callbacks.onBattleTransition) {
+      this.callbacks.onBattleTransition({ enemy: monster.config.name, color: monster.config.color }, enter);
+    } else enter();
   }
 
   battleAction(action) {
-    if (this.mode !== 'BATTLE' || !this.battle) return;
+    if (this.mode !== 'BATTLE' || !this.battle || !this.battle.playerTurn) return;
+    this.battle.playerTurn = false;
     if (action === 'attack') {
       const damage = Math.max(1, this.getAttackDamage() - (this.battle.monster.config.defense || 0));
       this.battle.monster.health = Math.max(0, this.battle.monster.health - damage);
@@ -257,7 +319,7 @@ export class GridExplorationRuntime {
       this.battle.log.push('逃跑失败。');
       if (!this.config.battle.failedEscapeEnemyAttack) return this.finishBattleRound();
     }
-    this.enemyAttack();
+    if (!this.battle.enemyFirst) this.enemyAttack();
     this.finishBattleRound();
   }
 
@@ -275,6 +337,12 @@ export class GridExplorationRuntime {
     this.consumeHunger('battle');
     if (this.player.health <= 0) return this.loseBattle();
     this.battle.round += 1;
+    if (this.battle.enemyFirst) {
+      this.battle.log.push('敌人正在行动…');
+      this.enemyAttack();
+      if (this.player.health <= 0) return this.loseBattle();
+    }
+    this.battle.playerTurn = true;
     this.emitBattle();
   }
 
@@ -283,26 +351,32 @@ export class GridExplorationRuntime {
     this.monsters = this.monsters.filter((item) => item !== monster);
     this.corpses.push({ id: `corpse-${monster.id}`, x: monster.x, y: monster.y, config: monster.config, harvested: false });
     if (this.config.battle.victoryPlayerMovesIntoEnemyTile) { this.player.x = monster.x; this.player.y = monster.y; }
-    this.mode = 'OUTDOOR_EXPLORATION'; this.battle = null;
-    this.setMessage(`${monster.config.name}倒下了。尸体就在脚下。`);
-    this.updateVision(); this.render();
-    this.callbacks.onBattleEnd?.('victory');
+    const finish = () => {
+      this.mode = 'OUTDOOR_EXPLORATION'; this.battle = null;
+      this.setMessage(`${monster.config.name}倒下了。尸体就在脚下，可以切割。`);
+      this.updateVision(); this.render();
+    };
+    if (this.callbacks.onBattleResult) this.callbacks.onBattleResult({ type: 'victory', title: `击败 ${monster.config.name}`, detail: '尸体已留下，可以进行切割。' }, finish);
+    else finish();
   }
 
   loseBattle() {
-    this.callbacks.onBattleEnd?.('defeat');
-    this.battle = null;
-    this.failExpedition();
+    const finish = () => { this.battle = null; this.failExpedition(); };
+    if (this.callbacks.onBattleResult) this.callbacks.onBattleResult({ type: 'defeat', title: '外出失败', detail: '你倒在了雾中。' }, finish);
+    else finish();
   }
 
   escapeBattle() {
     const monster = this.battle.monster;
     monster.cooldownTurns = monster.config.disengageCooldownTurns;
     monster.state = 'Cooldown';
-    this.mode = 'OUTDOOR_EXPLORATION'; this.battle = null;
-    this.setMessage(`你逃回接敌前的位置，${monster.config.name}暂时没有追来。`);
-    this.updateVision(); this.render();
-    this.callbacks.onBattleEnd?.('escaped');
+    const finish = () => {
+      this.mode = 'OUTDOOR_EXPLORATION'; this.battle = null;
+      this.setMessage(`你逃回接敌前的位置，${monster.config.name}暂时没有追来。`);
+      this.updateVision(); this.render();
+    };
+    if (this.callbacks.onBattleResult) this.callbacks.onBattleResult({ type: 'escaped', title: '逃跑成功', detail: '敌人暂时失去了战斗意志。' }, finish);
+    else finish();
   }
 
   emitBattle() {
@@ -336,15 +410,16 @@ export class GridExplorationRuntime {
   getBattleView() {
     return {
       round: this.battle.round, initiator: this.battle.initiator,
-      player: { health: Math.round(this.player.health), maxHealth: this.config.global.maxHealth, hunger: Math.round(this.player.hunger), madness: Math.round(this.player.madness), attack: this.getAttackDamage(), meat: this.player.loot.monsterMeat },
-      enemy: { name: this.battle.monster.config.name, health: this.battle.monster.health, maxHealth: this.battle.monster.config.health, attack: this.battle.monster.config.attack, color: this.battle.monster.config.color },
+      phase: this.battle.playerTurn ? 'player' : 'enemy',
+      player: { health: Math.round(this.player.health), maxHealth: this.config.global.maxHealth, hunger: Math.round(this.player.hunger), madness: Math.round(this.player.madness), attack: this.getAttackDamage(), speed: this.config.player.speed, meat: this.player.loot.monsterMeat },
+      enemy: { name: this.battle.monster.config.name, health: this.battle.monster.health, maxHealth: this.battle.monster.config.health, attack: this.battle.monster.config.attack, speed: this.battle.monster.config.speed, color: this.battle.monster.config.color },
       actions: this.config.battle.playerActions,
       log: this.battle.log.slice(-5)
     };
   }
 
   getHud() {
-    return { health: Math.round(this.player.health), hunger: Math.round(this.player.hunger), madness: Math.round(this.player.madness), madnessState: this.getMadnessStage().state, attack: this.getAttackDamage(), meat: this.player.loot.monsterMeat, turn: this.turn, message: this.message, position: `${this.player.x},${this.player.y}` };
+    return { health: Math.round(this.player.health), hunger: Math.round(this.player.hunger), madness: Math.round(this.player.madness), madnessState: this.getMadnessStage().state, attack: this.getAttackDamage(), meat: this.player.loot.monsterMeat, turn: this.turn, message: this.message, position: `${this.player.x},${this.player.y}`, interaction: this.getInteraction() };
   }
 
   setMessage(message) { this.message = message; }
@@ -396,6 +471,11 @@ export class GridExplorationRuntime {
     const ctx = this.ctx; ctx.save(); ctx.globalAlpha = memory ? .42 : 1;
     ctx.fillStyle = enemy.color; ctx.beginPath();
     ctx.arc(px + size / 2, py + size / 2, size * .25, 0, Math.PI * 2); ctx.fill();
+    if (!memory && ['Alert', 'Chase', 'AttackIntent'].includes(enemy.state)) {
+      ctx.fillStyle = enemy.state === 'AttackIntent' ? '#ff5f5f' : '#f5d078';
+      ctx.font = `700 ${size * .42}px sans-serif`; ctx.textAlign = 'center';
+      ctx.fillText(enemy.state === 'Alert' ? '!' : enemy.state === 'AttackIntent' ? '⚠' : '↓', px + size / 2, py + size * .24);
+    }
     if (memory) { ctx.fillStyle = '#e5d5a1'; ctx.font = `${size * .35}px serif`; ctx.textAlign = 'center'; ctx.fillText('?', px + size * .75, py + size * .35); }
     ctx.restore();
   }
