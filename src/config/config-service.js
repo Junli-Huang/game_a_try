@@ -43,14 +43,14 @@ export class ConfigService {
   validateConfig(config) {
     const errors = [];
     if (!config || typeof config !== 'object') return { valid: false, errors: ['配置根节点必须是对象'] };
-    const required = ['global', 'player', 'monsters', 'foods', 'madnessStages', 'equipment', 'maps', 'farming', 'battle'];
+    const required = ['global', 'player', 'monsters', 'foods', 'madnessStages', 'equipment', 'maps', 'farming', 'battle', 'ui'];
     required.forEach((key) => { if (!(key in config)) errors.push(`缺少配置分类：${key}`); });
     if (errors.length) return { valid: false, errors };
 
     ['maxHealth', 'maxHunger', 'maxMadness'].forEach((key) => {
       if (!isFiniteNumber(config.global[key]) || config.global[key] <= 0) errors.push(`global.${key} 必须大于 0`);
     });
-    ['health', 'hunger', 'moveSpeed', 'baseAttack', 'attackRange', 'attackCooldown', 'inventoryCapacity'].forEach((key) => {
+    ['health', 'hunger', 'speed', 'moveSpeed', 'baseAttack', 'attackRange', 'attackCooldown', 'inventoryCapacity'].forEach((key) => {
       if (!isFiniteNumber(config.player[key]) || config.player[key] < 0) errors.push(`player.${key} 必须是非负数`);
     });
 
@@ -68,7 +68,7 @@ export class ConfigService {
     uniqueIds(config.equipment, 'equipment');
 
     config.monsters.forEach((monster) => {
-      ['health', 'actionChance', 'maxMovesPerTurn', 'harvestTurns', 'meatYield'].forEach((key) => {
+      ['health', 'speed', 'alertDuration', 'attackIntentRange', 'actionChance', 'maxMovesPerTurn', 'harvestTurns', 'meatYield'].forEach((key) => {
         if (!isFiniteNumber(monster[key]) || monster[key] < 0) errors.push(`${monster.id}.${key} 必须是非负数`);
       });
       if (monster.canChase && monster.maxChaseDistance < monster.detectRange) errors.push(`${monster.name}：最大追踪距离不能小于感知距离`);
