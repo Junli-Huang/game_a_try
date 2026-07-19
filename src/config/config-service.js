@@ -43,7 +43,7 @@ export class ConfigService {
   validateConfig(config) {
     const errors = [];
     if (!config || typeof config !== 'object') return { valid: false, errors: ['配置根节点必须是对象'] };
-    const required = ['global', 'player', 'monsters', 'foods', 'madnessStages', 'equipment', 'maps', 'farming', 'battle', 'ui'];
+    const required = ['global', 'player', 'monsters', 'foods', 'madnessStages', 'equipment', 'maps', 'farming', 'battle', 'ui', 'demoGoal', 'madnessPresentation', 'mapEvents', 'events', 'audio'];
     required.forEach((key) => { if (!(key in config)) errors.push(`缺少配置分类：${key}`); });
     if (errors.length) return { valid: false, errors };
 
@@ -94,6 +94,14 @@ export class ConfigService {
     config.farming.forEach((crop) => {
       if (!foodIds.has(crop.yieldItem)) errors.push(`${crop.name} 引用了不存在的产物：${crop.yieldItem}`);
     });
+    ['requiredExtractions', 'requiredMonsterMeat', 'maxExpeditionFailures'].forEach((key) => {
+      if (!isFiniteNumber(config.demoGoal[key]) || config.demoGoal[key] < 1) errors.push(`demoGoal.${key} 必须大于 0`);
+    });
+    if (!isFiniteNumber(config.mapEvents.triggerChancePerNewTile) || config.mapEvents.triggerChancePerNewTile < 0 || config.mapEvents.triggerChancePerNewTile > 1) errors.push('mapEvents.triggerChancePerNewTile 必须在 0～1 之间');
+    uniqueIds(config.events, 'events');
+    ['masterVolume', 'bgmVolume', 'sfxVolume'].forEach((key) => {
+      if (!isFiniteNumber(config.audio[key]) || config.audio[key] < 0 || config.audio[key] > 1) errors.push(`audio.${key} 必须在 0～1 之间`);
+    });
     return { valid: errors.length === 0, errors };
   }
 }
@@ -104,6 +112,15 @@ export function createInitialSave(config) {
     monsterMeat: config.shelter?.initialMonsterMeat ?? 0,
     madness: config.player.madness,
     expeditions: 0,
+    successfulExtractions: 0,
+    expeditionFailures: 0,
+    totalMonsterMeatReturned: 0,
+    enemiesKilled: 0,
+    corpsesHarvested: 0,
+    highestMadness: config.player.madness,
+    introSeen: false,
+    goalResultSeen: false,
+    seenEventIds: [],
     farm: { planted: false, cyclesLeft: 0 },
     lastResult: null
   };
@@ -112,7 +129,7 @@ export function createInitialSave(config) {
 export function loadSave(config) {
   try {
     const value = JSON.parse(localStorage.getItem(SAVE_STORAGE_KEY));
-    return value && typeof value === 'object' ? value : createInitialSave(config);
+    return value && typeof value === 'object' ? { ...createInitialSave(config), ...value, farm: { ...createInitialSave(config).farm, ...value.farm } } : createInitialSave(config);
   } catch { return createInitialSave(config); }
 }
 
