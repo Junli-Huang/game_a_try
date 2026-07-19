@@ -180,6 +180,24 @@ export class GridExplorationRuntime {
     this.advanceMapTurn('wait');
   }
 
+  getOutdoorItems() {
+    return this.config.foods.filter((item) => item.allowOutdoor).map((item) => ({
+      ...item,
+      count: item.id === 'monster_meat' ? this.player.loot.monsterMeat : 0
+    }));
+  }
+
+  useOutdoorItem(itemId) {
+    if (!this.running || this.mode !== 'OUTDOOR_EXPLORATION') return { ok: false, message: '现在无法使用道具。' };
+    const item = this.config.foods.find((food) => food.id === itemId && food.allowOutdoor);
+    if (!item) return { ok: false, message: '这个道具不能在户外使用。' };
+    if (item.id !== 'monster_meat' || this.player.loot.monsterMeat <= 0) return { ok: false, message: '背包里没有可用的异变肉块。' };
+    this.eatMonsterMeat();
+    this.setMessage(`你吃下${item.name}：饥饿 +${item.hungerRestore}，疯狂 +${item.madnessGain}。`);
+    this.advanceMapTurn('wait');
+    return { ok: true, item, hunger: this.player.hunger, madness: this.player.madness };
+  }
+
   interact() {
     if (this.mode !== 'OUTDOOR_EXPLORATION') return;
     const corpse = this.corpseAt(this.player.x, this.player.y);
