@@ -5,9 +5,6 @@ export const DEFAULT_CONFIG = {
     maxHunger: 100,
     maxMadness: 100,
     hungerCostPerMove: 1,
-    hungerCostPerBattleRound: 1,
-    hungerCostPerHarvestRound: 1,
-    hungerCostPerWait: 1,
     starvationDamagePerAction: 6,
     loseLootOnDeath: true,
     keepEquipmentOnDeath: true,
@@ -94,7 +91,7 @@ export const DEFAULT_CONFIG = {
     }
   ],
   battle: {
-    playerActions: ['attack', 'defend', 'eat', 'escape'],
+    playerActions: ['attack', 'defend', 'item', 'escape'],
     initiatorActsFirst: true,
     baseEscapeChance: 0.55,
     failedEscapeEnemyAttack: true,
@@ -143,7 +140,7 @@ export const DEFAULT_CONFIG = {
       { id: 'leave', label: '离开', effects: [] }
     ] },
     { id: 'warm_campfire', title: '未熄灭的火堆', description: '灰烬下面仍有一点温度。\n\n刚才似乎还有人在这里。', weight: 2, enabled: true, choices: [
-      { id: 'rest', label: '停下来休息', effects: [{ type: 'health', value: 5 }, { type: 'hunger', value: -2 }, { type: 'advanceTurn', value: 1 }] },
+      { id: 'rest', label: '停下来休息', effects: [{ type: 'health', value: 5 }, { type: 'advanceTurn', value: 1 }] },
       { id: 'go', label: '继续前进', effects: [] }
     ] },
     { id: 'torn_note', title: '残缺笔记', description: '纸上只剩下一段还能辨认的字：\n\n“不要相信你离开视野后留下的东西。”', weight: 2, enabled: true, choices: [{ id: 'read', label: '收起笔记', effects: [{ type: 'madness', value: 2 }] }] },
@@ -160,7 +157,7 @@ export const DEFAULT_CONFIG = {
       { id: 'answer', label: '回应', effects: [{ type: 'madness', value: 8 }] },
       { id: 'silent', label: '保持沉默', effects: [{ type: 'madness', value: 2 }] }
     ] },
-    { id: 'familiar_smell', title: '熟悉的味道', description: '你闻到了刚切开的肉的味道。\n\n附近明明什么都没有。', weight: 2, enabled: true, minMadness: 60, choices: [{ id: 'endure', label: '忍住饥饿', effects: [{ type: 'hunger', value: -2 }, { type: 'madness', value: 4 }] }] }
+    { id: 'familiar_smell', title: '熟悉的味道', description: '你闻到了刚切开的肉的味道。\n\n附近明明什么都没有。', weight: 2, enabled: true, minMadness: 60, choices: [{ id: 'endure', label: '忍住饥饿', effects: [{ type: 'madness', value: 4 }] }] }
   ],
   audio: {
     enabled: true,
