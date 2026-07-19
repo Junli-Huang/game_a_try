@@ -91,3 +91,20 @@ test('interaction describes harvest, full inventory, and extraction', () => {
   runtime.player.y = runtime.mapConfig.extractPoint.y;
   assert.equal(runtime.getInteraction().label, '开始撤离');
 });
+
+test('outdoor item menu exposes meat and eating consumes one exploration turn', () => {
+  const runtime = createRuntime();
+  runtime.running = true;
+  runtime.player.loot.monsterMeat = 2;
+  runtime.player.hunger = 40;
+  runtime.render = () => {};
+  const beforeMadness = runtime.player.madness;
+  const item = runtime.getOutdoorItems().find((entry) => entry.id === 'monster_meat');
+  assert.equal(item.count, 2);
+  const result = runtime.useOutdoorItem('monster_meat');
+  assert.equal(result.ok, true);
+  assert.equal(runtime.player.loot.monsterMeat, 1);
+  assert.equal(runtime.turn, 1);
+  assert.equal(runtime.player.hunger, 65);
+  assert.ok(runtime.player.madness > beforeMadness);
+});
