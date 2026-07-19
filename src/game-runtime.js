@@ -1,3 +1,5 @@
+import { MapEventService } from './systems/map-event-service.js';
+
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const manhattan = (a, b) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
 const keyOf = (x, y) => `${x},${y}`;
@@ -32,6 +34,8 @@ export class GridExplorationRuntime {
     this.monsters = this.spawnMonsters();
     this.corpses = [];
     this.battle = null;
+    this.visitedTiles = new Set([keyOf(this.player.x, this.player.y)]);
+    this.eventService = new MapEventService(this.config);
     this.running = true;
     addEventListener('keydown', this.boundKeyDown);
     this.canvas.addEventListener('click', this.boundClick);
@@ -136,8 +140,38 @@ export class GridExplorationRuntime {
     const monster = this.monsterAt(target.x, target.y);
     if (monster) { this.startBattle(monster, 'player'); return true; }
     this.player.x = target.x; this.player.y = target.y;
+    const firstVisit = !this.visitedTiles.has(keyOf(target.x, target.y));
+    this.visitedTiles.add(keyOf(target.x, target.y));
     this.advanceMapTurn('move');
+    if (this.mode === 'OUTDOOR_EXPLORATION' && firstVisit) this.tryMapEvent();
     return true;
+  }
+
+  tryMapEvent() {
+    if (!this.callbacks.onMapEvent) return;
+    const event = this.eventService.tryTrigger({ firstVisit: true, step: this.turn, madness: this.player.madness, hunger: this.player.hunger, seenEventIds: this.save.seenEventIds || [] });
+    if (!event) return;
+    this.mode = 'MAP_EVENT';
+    this.callbacks.onMapEvent?.(event, (choice) => this.resolveMapEvent(event, choice));
+  }
+
+  resolveMapEvent(event, choice) {
+    if (this.mode !== 'MAP_EVENT') return;
+    const effects = this.eventService.effectsFor(choice), messages = [];
+    effects.forEach((effect) => {
+      if (effect.type === 'health') { this.player.health = clamp(this.player.health + effect.value, 0, this.config.global.maxHealth); messages.push(`生命 ${effect.value >= 0 ? '+' : ''}${effect.value}`); }
+      if (effect.type === 'hunger') { this.player.hunger = clamp(this.player.hunger + effect.value, 0, this.config.global.maxHunger); messages.push(`饥饿 ${effect.value >= 0 ? '+' : ''}${effect.value}`); }
+      if (effect.type === 'madness') { this.changeMadness(effect.value); messages.push(`疯狂 ${effect.value >= 0 ? '+' : ''}${effect.value}`); }
+      if (effect.type === 'safeFood') { this.save.safeFood += effect.value; messages.push(`获得储备粮 ×${effect.value}`); }
+      if (effect.type === 'monsterMeat') { const amount = Math.min(effect.value, this.config.player.inventoryCapacity - this.player.loot.monsterMeat); this.player.loot.monsterMeat += amount; messages.push(`获得异变肉块 ×${amount}`); }
+      if (effect.type === 'message') messages.push(effect.value);
+    });
+    if (event.oncePerSave && !(this.save.seenEventIds || []).includes(event.id)) this.save.seenEventIds.push(event.id);
+    this.mode = 'OUTDOOR_EXPLORATION';
+    const turns = effects.filter((effect) => effect.type === 'advanceTurn').reduce((sum, effect) => sum + effect.value, 0);
+    for (let index = 0; index < turns && this.mode === 'OUTDOOR_EXPLORATION'; index += 1) this.advanceMapTurn('wait', false);
+    const finish = () => { this.setMessage(messages.join(' · ') || '你决定不再停留。'); this.updateVision(); this.render(); };
+    if (this.callbacks.onMapEventResult) this.callbacks.onMapEventResult(messages, finish); else finish();
   }
 
   wait() {
@@ -177,6 +211,7 @@ export class GridExplorationRuntime {
     const amount = Math.min(free, Math.max(1, Math.floor(corpse.config.meatYield * this.config.player.harvestYieldMultiplier * gear.harvestYield)));
     corpse.harvested = true;
     this.player.loot.monsterMeat += amount;
+    this.save.corpsesHarvested = (this.save.corpsesHarvested || 0) + 1;
     this.setMessage(`切割完成，获得 ${amount} 份异变肉块。`);
     this.updateVision(); this.render();
   }
@@ -349,6 +384,7 @@ export class GridExplorationRuntime {
   winBattle() {
     const monster = this.battle.monster;
     this.monsters = this.monsters.filter((item) => item !== monster);
+    this.save.enemiesKilled = (this.save.enemiesKilled || 0) + 1;
     this.corpses.push({ id: `corpse-${monster.id}`, x: monster.x, y: monster.y, config: monster.config, harvested: false });
     if (this.config.battle.victoryPlayerMovesIntoEnemyTile) { this.player.x = monster.x; this.player.y = monster.y; }
     const finish = () => {
@@ -388,7 +424,14 @@ export class GridExplorationRuntime {
     const food = this.config.foods.find((item) => item.id === 'monster_meat');
     this.player.loot.monsterMeat -= 1;
     this.player.hunger = clamp(this.player.hunger + food.hungerRestore, 0, this.config.global.maxHunger);
-    this.player.madness = clamp(this.player.madness + food.madnessGain, 0, this.config.global.maxMadness);
+    this.changeMadness(food.madnessGain);
+  }
+
+  changeMadness(value) {
+    const before = this.player.madness;
+    this.player.madness = clamp(this.player.madness + value, 0, this.config.global.maxMadness);
+    this.save.highestMadness = Math.max(this.save.highestMadness || 0, this.player.madness);
+    this.callbacks.onMadnessChange?.(before, this.player.madness);
   }
 
   getEquipmentStats() {
@@ -426,6 +469,8 @@ export class GridExplorationRuntime {
 
   succeedExpedition() {
     this.save.monsterMeat += this.player.loot.monsterMeat;
+    this.save.successfulExtractions = (this.save.successfulExtractions || 0) + 1;
+    this.save.totalMonsterMeatReturned = (this.save.totalMonsterMeatReturned || 0) + this.player.loot.monsterMeat;
     this.save.madness = Math.round(this.player.madness);
     this.advanceFarm(); this.save.expeditions += 1;
     this.save.lastResult = { success: true, meat: this.player.loot.monsterMeat };
@@ -436,6 +481,7 @@ export class GridExplorationRuntime {
     if (!this.running) return;
     if (this.config.global.keepMadnessOnDeath) this.save.madness = Math.round(this.player.madness);
     this.advanceFarm(); this.save.expeditions += 1;
+    this.save.expeditionFailures = (this.save.expeditionFailures || 0) + 1;
     this.save.lastResult = { success: false, meat: this.config.global.loseLootOnDeath ? 0 : this.player.loot.monsterMeat };
     if (!this.config.global.loseLootOnDeath) this.save.monsterMeat += this.player.loot.monsterMeat;
     this.stop(); this.callbacks.onComplete?.(this.save, false);
