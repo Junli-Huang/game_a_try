@@ -1,5 +1,5 @@
 export const DEFAULT_CONFIG = {
-  version: '1.1.1',
+  version: '1.2.0',
   global: {
     maxHealth: 100,
     maxHunger: 100,
@@ -108,7 +108,66 @@ export const DEFAULT_CONFIG = {
   ui: {
     showEnemyAlert: true,
     showAttackIntent: true,
-    highlightInteract: true
+    highlightInteract: true,
+    showGoal: true,
+    showShortcuts: true,
+    showEnemyStateIcons: true,
+    transitionDurationMs: 600
+  },
+  demoGoal: {
+    enabled: true,
+    requiredExtractions: 3,
+    requiredMonsterMeat: 12,
+    maxExpeditionFailures: 3,
+    showGoalOnShelter: true,
+    showGoalOnOutdoorHud: true
+  },
+  madnessPresentation: {
+    enabled: true,
+    showStageMessages: true,
+    showWhispers: true,
+    enableEdgeVignette: true,
+    enableUiPulse: true,
+    enableUiJitter: true,
+    reducedMotion: false
+  },
+  mapEvents: {
+    enabled: true,
+    triggerChancePerNewTile: 0.08,
+    maxEventsPerExpedition: 3,
+    minStepsBetweenEvents: 5
+  },
+  events: [
+    { id: 'abandoned_pack', title: '废弃背包', description: '一个发霉的背包被压在碎石下面。\n\n拉链上沾着已经干涸的血。', weight: 3, enabled: true, oncePerExpedition: true, choices: [
+      { id: 'open', label: '打开背包', outcomes: [[{ type: 'safeFood', value: 1 }], [{ type: 'message', value: '什么也没有找到。' }], [{ type: 'madness', value: 3 }]] },
+      { id: 'leave', label: '离开', effects: [] }
+    ] },
+    { id: 'warm_campfire', title: '未熄灭的火堆', description: '灰烬下面仍有一点温度。\n\n刚才似乎还有人在这里。', weight: 2, enabled: true, choices: [
+      { id: 'rest', label: '停下来休息', effects: [{ type: 'health', value: 5 }, { type: 'hunger', value: -2 }, { type: 'advanceTurn', value: 1 }] },
+      { id: 'go', label: '继续前进', effects: [] }
+    ] },
+    { id: 'torn_note', title: '残缺笔记', description: '纸上只剩下一段还能辨认的字：\n\n“不要相信你离开视野后留下的东西。”', weight: 2, enabled: true, choices: [{ id: 'read', label: '收起笔记', effects: [{ type: 'madness', value: 2 }] }] },
+    { id: 'rotten_crate', title: '腐烂的储藏箱', description: '木箱里传来甜腻的腐臭味。', weight: 2, enabled: true, choices: [
+      { id: 'search', label: '翻找', outcomes: [[{ type: 'monsterMeat', value: 1 }], [{ type: 'safeFood', value: 1 }], [{ type: 'health', value: -3 }], [{ type: 'madness', value: 5 }]] },
+      { id: 'leave', label: '不碰它', effects: [] }
+    ] },
+    { id: 'distant_steps', title: '远处的脚步', description: '雾里传来有节奏的脚步声。\n\n它没有靠近，也没有远去。', weight: 2, enabled: true, choices: [{ id: 'listen', label: '继续前进', effects: [{ type: 'madness', value: 3 }] }] },
+    { id: 'strange_corpse', title: '陌生尸体', description: '尸体穿着和你相似的装备。\n\n脸已经无法辨认。', weight: 2, enabled: true, choices: [
+      { id: 'search', label: '搜查', effects: [{ type: 'safeFood', value: 1 }, { type: 'madness', value: 5 }] },
+      { id: 'bury', label: '掩埋', effects: [{ type: 'madness', value: -2 }, { type: 'advanceTurn', value: 1 }] }
+    ] },
+    { id: 'fog_call', title: '雾中的呼唤', description: '有人在雾里叫你的名字。\n\n声音来自撤离点的反方向。', weight: 2, enabled: true, minMadness: 30, choices: [
+      { id: 'answer', label: '回应', effects: [{ type: 'madness', value: 8 }] },
+      { id: 'silent', label: '保持沉默', effects: [{ type: 'madness', value: 2 }] }
+    ] },
+    { id: 'familiar_smell', title: '熟悉的味道', description: '你闻到了刚切开的肉的味道。\n\n附近明明什么都没有。', weight: 2, enabled: true, minMadness: 60, choices: [{ id: 'endure', label: '忍住饥饿', effects: [{ type: 'hunger', value: -2 }, { type: 'madness', value: 4 }] }] }
+  ],
+  audio: {
+    enabled: true,
+    masterVolume: 0.8,
+    bgmVolume: 0.5,
+    sfxVolume: 0.8,
+    muted: false
   },
   farming: [
     { id: 'shelter_crop', name: '灰麦', growthCycles: 2, seedCost: 1, yieldItem: 'safe_food', yieldCount: 3, allowShelter: true, allowOutdoor: false }
