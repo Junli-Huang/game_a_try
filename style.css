@@ -181,7 +181,13 @@ button.wide { width: 100%; margin-top: 1rem; }
   .config-header-actions { flex-wrap: wrap; justify-content: end; }.config-header-actions button { padding: .55rem .7rem; font-size: .72rem; }
   .config-layout { grid-template-columns: 94px 1fr; }.config-nav button { padding: .6rem .45rem; font-size: .72rem; }
   .field-grid { grid-template-columns: 1fr; }.config-editor-head > span { display: none; }.config-footer { align-items: end; gap: .5rem; }.config-footer > div { flex-wrap: wrap; }.config-footer button { padding: .48rem .6rem; font-size: .68rem; }
-  .hud { right: 2%; }.hud-bars { width: 55vw; }.hud-info { flex-direction: column; }.mobile-pad { display: grid; }.game-actions { bottom: 2%; }
-  .game-screen { align-content: start; overflow-y: auto; }.exploration-layout { grid-template-columns: 1fr; gap: .7rem; padding: 6.5rem .7rem 7rem; }.game-screen canvas { width: min(94vw, 72vh); height: min(94vw, 72vh); justify-self: center; }.exploration-side { width: min(94vw, 560px); justify-self: center; padding: .8rem; }.exploration-side .eyebrow, .exploration-side > p, .exploration-side > small { display: none; }.legend { padding: .6rem 0; }.turn-message { min-height: 52px; margin: .6rem 0; }.mobile-pad { position: fixed; z-index: 8; }
+  .game-screen { min-height: 100dvh; display: flex; flex-direction: column; justify-content: flex-start; overflow-x: hidden; overflow-y: auto; padding: max(.6rem, env(safe-area-inset-top)) .7rem calc(7rem + env(safe-area-inset-bottom)); touch-action: pan-y; }
+  .hud { position: static; order: 0; width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .55rem; padding: 0; }
+  .hud-bars { width: 100%; min-width: 0; padding: .55rem; }.hud-info { display: grid; grid-template-columns: 1fr 1fr; gap: .35rem; }.hud-info span { padding: .45rem .55rem; white-space: nowrap; }
+  .exploration-layout { order: 1; width: 100%; grid-template-columns: minmax(0, 1fr); gap: .7rem; padding: .7rem 0 0; }
+  .game-screen canvas { display: block; width: min(100%, 560px); height: auto; max-height: none; flex: 0 0 auto; justify-self: center; }
+  .exploration-side { width: min(100%, 560px); align-self: auto; justify-self: center; padding: .8rem; }.exploration-side .eyebrow, .exploration-side > p, .exploration-side > small { display: none; }.legend { padding: .6rem 0; }.turn-message { min-height: 52px; margin: .6rem 0; }
+  .mobile-pad { position: fixed; z-index: 8; display: grid; left: max(.7rem, env(safe-area-inset-left)); bottom: max(.7rem, env(safe-area-inset-bottom)); }
+  .game-actions { bottom: max(.7rem, env(safe-area-inset-bottom)); }
   .battle-layer { padding: .8rem; overflow-y: auto; }.battle-screen { padding: 1rem 0; }.battle-screen > header > span { display: none; }.combatants { gap: .5rem; padding: 1rem 0; }.combatant { padding: .7rem; }.combatant-art { width: 64px; height: 76px; }.combatant small { font-size: .63rem; text-align: center; }.battle-bottom { grid-template-columns: 1fr; }.battle-log { min-height: 90px; }.battle-actions button { min-height: 48px; padding: .5rem; }
 }
