@@ -25,3 +25,10 @@ test('exported config can be imported without losing data', () => {
   const imported = service.importConfig(service.exportConfig(config));
   assert.equal(imported.player.baseAttack, 17);
 });
+
+test('legacy battle eat action migrates to item menu', () => {
+  const config = service.loadDefaultConfig();
+  config.battle.playerActions = ['attack', 'defend', 'eat', 'escape'];
+  const imported = service.importConfig(JSON.stringify(config));
+  assert.deepEqual(imported.battle.playerActions, ['attack', 'defend', 'item', 'escape']);
+});
