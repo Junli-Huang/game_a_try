@@ -105,6 +105,19 @@ test('outdoor item menu exposes meat and eating consumes one exploration turn', 
   assert.equal(result.ok, true);
   assert.equal(runtime.player.loot.monsterMeat, 1);
   assert.equal(runtime.turn, 1);
-  assert.equal(runtime.player.hunger, 65);
+  assert.equal(runtime.player.hunger, 66);
   assert.ok(runtime.player.madness > beforeMadness);
+});
+
+test('hunger decreases on movement only', () => {
+  const runtime = createRuntime();
+  runtime.render = () => {};
+  runtime.player.hunger = 50;
+  runtime.consumeHunger('battle');
+  runtime.consumeHunger('harvest');
+  runtime.consumeHunger('wait');
+  assert.equal(runtime.player.hunger, 50);
+  runtime.consumeHunger('move');
+  assert.equal(runtime.player.hunger, 49);
+  assert.deepEqual(runtime.config.battle.playerActions, ['attack', 'defend', 'item', 'escape']);
 });
