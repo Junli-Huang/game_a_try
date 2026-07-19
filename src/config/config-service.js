@@ -16,8 +16,17 @@ export class ConfigService {
   }
 
   loadActiveConfig() {
-    const saved = this.loadSavedConfig();
+    const saved = this.migrateConfig(this.loadSavedConfig());
     return saved && this.validateConfig(saved).valid ? saved : this.loadDefaultConfig();
+  }
+
+  migrateConfig(config) {
+    if (!config) return config;
+    const migrated = structuredClone(config);
+    if (Array.isArray(migrated.battle?.playerActions)) {
+      migrated.battle.playerActions = migrated.battle.playerActions.map((action) => action === 'eat' ? 'item' : action);
+    }
+    return migrated;
   }
 
   saveConfig(config) {
@@ -34,7 +43,7 @@ export class ConfigService {
   exportConfig(config) { return JSON.stringify(config, null, 2); }
 
   importConfig(json) {
-    const config = JSON.parse(json);
+    const config = this.migrateConfig(JSON.parse(json));
     const result = this.validateConfig(config);
     if (!result.valid) throw new Error(result.errors.join('\n'));
     return config;
