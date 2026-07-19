@@ -215,7 +215,7 @@ function startExpedition() {
         <p>亮色是当前视野，暗色是最后记忆，黑色区域尚未探索。</p>
         <div class="legend"><span><i class="player-dot"></i>玩家</span><span><i class="enemy-dot"></i>敌人</span><span><i class="corpse-dot"></i>尸体</span><span><i class="extract-dot"></i>撤离</span></div>
         <div id="turn-message" class="turn-message"></div>
-        <div class="explore-actions">${button('原地等待', 'wait')}<button id="interact-button" data-action="interact" hidden></button></div>
+        <div class="explore-actions">${button('原地等待', 'wait')}${button('使用道具', 'use-item', 'item-button')}<button id="interact-button" data-action="interact" hidden></button></div>
         <small>WASD / 方向键移动，也可以点击相邻格</small>
       </aside></div>
       <div class="hud">
@@ -241,7 +241,7 @@ function startExpedition() {
     onMadnessChange: handleMadnessChange,
     onComplete: (nextSave, success) => { save = nextSave; persistSave(save); renderShelter(); toast(success ? '撤离成功，搜集物已入库' : '外出失败，你失去了本次搜集物'); }
   });
-  bindActions(app, { wait: () => runtime.wait(), interact: () => runtime.interact() });
+  bindActions(app, { wait: () => runtime.wait(), interact: () => runtime.interact(), 'use-item': showOutdoorItems });
   app.querySelectorAll('[data-dir]').forEach((element) => {
     const [dx, dy] = element.dataset.dir.split(',').map(Number);
     element.addEventListener('click', () => runtime.movePlayer(dx, dy));
@@ -249,6 +249,26 @@ function startExpedition() {
   runtime.start();
   audioService.playBgm('outdoor');
   if (config.madnessPresentation.showWhispers && save.madness >= 30) setTimeout(() => showWhisper(madnessPresentation.whisper()), 1200);
+}
+
+function showOutdoorItems() {
+  const items = runtime.getOutdoorItems();
+  const meat = items.find((item) => item.id === 'monster_meat');
+  showModal('使用道具', '使用道具会消耗一个探索回合，附近的敌人仍会行动。', [
+    {
+      label: `${meat?.name || '异变肉块'} × ${meat?.count || 0} · 饥饿 +${meat?.hungerRestore || 0} / 疯狂 +${meat?.madnessGain || 0}`,
+      primary: true,
+      disabled: !meat?.count,
+      action: () => {
+        closeModal();
+        const result = runtime.useOutdoorItem('monster_meat');
+        if (!result.ok) return toast(result.message, true);
+        audioService.playSfx('eat');
+        toast(madnessPresentation.eatMessage(result.madness));
+      }
+    },
+    { label: '取消', action: closeModal }
+  ]);
 }
 
 function updateHud(hud) {
@@ -451,7 +471,7 @@ function toast(message, error = false) {
 function showModal(title, copy, actions = []) {
   closeModal();
   const layer = document.createElement('div'); layer.className = 'modal-layer'; layer.id = 'global-modal';
-  layer.innerHTML = `<section class="story-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><span class="eyebrow">THE FOG REMEMBERS</span><h2 id="modal-title">${title}</h2><p>${String(copy).replaceAll('\n', '<br>')}</p><div class="modal-actions">${actions.map((item, index) => `<button data-modal-action="${index}" class="${item.primary ? 'primary' : ''}">${item.label}</button>`).join('')}</div></section>`;
+  layer.innerHTML = `<section class="story-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><span class="eyebrow">THE FOG REMEMBERS</span><h2 id="modal-title">${title}</h2><p>${String(copy).replaceAll('\n', '<br>')}</p><div class="modal-actions">${actions.map((item, index) => `<button data-modal-action="${index}" class="${item.primary ? 'primary' : ''}" ${item.disabled ? 'disabled' : ''}>${item.label}</button>`).join('')}</div></section>`;
   document.body.append(layer);
   actions.forEach((item, index) => layer.querySelector(`[data-modal-action="${index}"]`)?.addEventListener('click', () => { audioService.playSfx('click'); item.action?.(); }));
   layer.querySelector('button')?.focus();
