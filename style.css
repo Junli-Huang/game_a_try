@@ -118,6 +118,9 @@ button.wide { width: 100%; margin-top: 1rem; }
 .mobile-pad { position: absolute; left: 2%; bottom: 3%; display: none; grid-template: repeat(2, 46px) / repeat(3, 46px); gap: 3px; }
 .mobile-pad button { padding: 0; border-radius: 50%; background: #14221fdd; }
 .mobile-pad button:nth-child(1) { grid-column: 2; }.mobile-pad button:nth-child(2) { grid-row: 2; grid-column: 1; }.mobile-pad button:nth-child(3) { grid-row: 2; grid-column: 3; }.mobile-pad button:nth-child(4) { grid-row: 2; grid-column: 2; }
+.explore-actions { display: flex; flex-wrap: wrap; gap: .55rem; }
+.explore-actions .item-button { border-color: #8e7652; background: #2a2117; color: #ead7a9; }
+.modal-actions button:disabled { opacity: .4; cursor: not-allowed; }
 .battle-layer { position: fixed; z-index: 15; inset: 0; display: grid; place-items: center; padding: 2rem; background: radial-gradient(circle at 50% 35%, #263833 0, #0b1110ee 60%), #080c0b; }
 .battle-layer[hidden] { display: none; }
 .encounter-transition { display: grid; place-items: center; gap: .4rem; color: #e9eee9; text-transform: uppercase; }
