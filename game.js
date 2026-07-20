@@ -3,6 +3,7 @@ import { GridExplorationRuntime } from './src/game-runtime.js';
 import { GoalService } from './src/systems/goal-service.js';
 import { MadnessPresentationService } from './src/systems/madness-presentation.js';
 import { AudioService } from './src/systems/audio-service.js';
+import { trimMapToBounds } from './src/systems/map-generation.js';
 
 const app = document.querySelector('#app');
 const fileInput = document.querySelector('#config-file');
@@ -15,11 +16,12 @@ let activeCategory = 'global';
 let goalService = new GoalService(config);
 let madnessPresentation = new MadnessPresentationService(config);
 let audioService = new AudioService(config);
+let playtestState = null;
 addEventListener('pointerdown', () => audioService.unlock(), { once: true });
 
 const labels = {
   global: '全局规则', player: '玩家', monsters: '怪物', foods: '食物', madnessStages: '疯狂阶段',
-  equipment: '装备', maps: '地图', farming: '种植', shelter: '庇护所', ui: '界面反馈', speed: '速度',
+  equipment: '装备', maps: '地图数据', mapEditor: '地图编辑', farming: '种植', shelter: '庇护所', ui: '界面反馈', speed: '速度',
   maxHealth: '最大生命', maxHunger: '最大饥饿', maxMadness: '最大疯狂', hungerDrainPerSecond: '每秒饥饿消耗',
   starvationDamagePerSecond: '饥饿伤害/秒', extractDuration: '撤离读条（秒）', loseLootOnDeath: '死亡丢失本局资源',
   keepEquipmentOnDeath: '死亡保留装备', keepMadnessOnDeath: '死亡保留疯狂', enableShelterFarming: '启用庇护所种植',
@@ -51,7 +53,11 @@ const labels = {
   demoGoal: 'Demo 目标', requiredExtractions: '目标撤离次数', requiredMonsterMeat: '目标带回肉量', maxExpeditionFailures: '最大失败次数',
   madnessPresentation: '疯狂表现', showStageMessages: '阶段变化提示', showWhispers: '显示低语', enableEdgeVignette: '边缘暗影', enableUiPulse: 'UI 脉动', enableUiJitter: 'UI 轻微偏移', reducedMotion: '减少动态效果',
   mapEvents: '地图事件规则', events: '地图事件内容', triggerChancePerNewTile: '新格触发概率', maxEventsPerExpedition: '单次事件上限', minStepsBetweenEvents: '事件最小间隔',
-  audio: '音频', masterVolume: '主音量', bgmVolume: 'BGM 音量', sfxVolume: '音效音量', muted: '静音', enabled: '启用'
+  audio: '音频', masterVolume: '主音量', bgmVolume: 'BGM 音量', sfxVolume: '音效音量', muted: '静音', enabled: '启用',
+  extractionPoints: '撤离点列表', randomSpawnRules: '随机布点规则', random: '随机种子', useFixedSeed: '使用固定 Seed', seed: 'Seed',
+  spawnConfig: '产出设置', monsterConfigId: '怪物配置 ID', intervalTurns: '产出间隔回合', initialDelayTurns: '首次产出延迟',
+  maxAliveChildren: '存活子怪上限', maxTotalChildren: '总产出上限', spawnRadiusMin: '最小产出半径', spawnRadiusMax: '最大产出半径',
+  spawnOnVisibleTile: '允许在视野内产出', requireWalkableTile: '要求可通行格', childHomeLinkedToSpawner: '子怪以巢穴为 Home'
 };
 
 function button(label, action, className = '') {
@@ -214,7 +220,7 @@ function startExpedition() {
         <p>亮色是当前视野，暗色是最后记忆，黑色区域尚未探索。</p>
         <div class="legend"><span><i class="player-dot"></i>玩家</span><span><i class="enemy-dot"></i>敌人</span><span><i class="corpse-dot"></i>尸体</span><span><i class="extract-dot"></i>撤离</span></div>
         <div id="turn-message" class="turn-message"></div>
-        <div class="explore-actions">${button('原地等待', 'wait')}${button('使用道具', 'use-item', 'item-button')}<button id="interact-button" data-action="interact" hidden></button></div>
+        <div class="explore-actions">${button('原地等待', 'wait')}${button('使用道具', 'use-item', 'item-button')}<button id="interact-button" data-action="interact" hidden></button>${playtestState ? button('返回地图编辑', 'leave-playtest', 'ghost') : ''}</div>
         <small>WASD / 方向键移动，也可以点击相邻格</small>
       </aside></div>
       <div class="hud">
@@ -239,9 +245,13 @@ function startExpedition() {
     onMapEvent: renderMapEvent,
     onMapEventResult: renderMapEventResult,
     onMadnessChange: handleMadnessChange,
-    onComplete: (nextSave, success) => { save = nextSave; persistSave(save); renderShelter(); toast(success ? '撤离成功，搜集物已入库' : '外出失败，你失去了本次搜集物'); }
+    onSave: (nextSave) => { if (!playtestState) persistSave(nextSave); },
+    onComplete: (nextSave, success) => {
+      if (playtestState) return leaveMapPlaytest();
+      save = nextSave; persistSave(save); renderShelter(); toast(success ? '撤离成功，搜集物已入库' : '外出失败，你失去了本次搜集物');
+    }
   });
-  bindActions(app, { wait: () => runtime.wait(), interact: () => runtime.interact(), 'use-item': showOutdoorItems });
+  bindActions(app, { wait: () => runtime.wait(), interact: () => runtime.interact(), 'use-item': showOutdoorItems, 'leave-playtest': leaveMapPlaytest });
   app.querySelectorAll('[data-dir]').forEach((element) => {
     const [dx, dy] = element.dataset.dir.split(',').map(Number);
     element.addEventListener('click', () => runtime.movePlayer(dx, dy));
@@ -401,7 +411,7 @@ function handleBattleKey(key) {
 const categoryDescriptions = {
   global: '控制整局规则、上限、消耗与失败结算。', player: '玩家初始能力，不修改正在进行中的角色。', monsters: '三种预设共用同一状态机，差异完全来自参数。',
   foods: '定义食物恢复与污染效果。', madnessStages: '定义疯狂阈值和攻击倍率。', equipment: '定义默认装备提供的能力。',
-  maps: '定义 20×20 地图、迷雾、出生点、撤离点、刷怪点与障碍物。', battle: '定义独立回合制战斗、速度先手、转场与结果展示。', ui: '定义目标、快捷键、敌人图标和交互反馈。',
+  maps: '定义 10×10 至 50×50 地图、迷雾、出生点、撤离点、固定与随机刷怪规则。', mapEditor: '可视化绘制障碍、出生点、撤离点与固定怪物；修改不会操作当前游戏实体。', battle: '定义独立回合制战斗、速度先手、转场与结果展示。', ui: '定义目标、快捷键、敌人图标和交互反馈。',
   demoGoal: '定义展示版的胜利目标与失败上限。', madnessPresentation: '定义低语、边缘效果和减少动态效果。', mapEvents: '定义随机事件的触发频率与上限。', events: '定义事件内容、权重、条件、选择与效果。', audio: '定义合成音效开关、静音与音量。',
   farming: '定义作物周期与产出。', shelter: '定义新存档的初始库存。'
 };
@@ -430,32 +440,129 @@ function renderConfig() {
 
 function renderConfigFields() {
   const root = document.querySelector('#config-fields');
+  if (activeCategory === 'mapEditor') {
+    root.innerHTML = renderMapEditor(configDraft.maps[0]);
+    bindMapPreview();
+    return;
+  }
   const value = configDraft[activeCategory];
   root.innerHTML = Array.isArray(value)
     ? `<div class="array-editor">${value.map((item, index) => `<article class="config-card"><header><strong>${item.name || item.state || item.id || `项目 ${index + 1}`}</strong><span>#${index + 1}</span></header>${renderObjectFields(item, `${activeCategory}.${index}`)}</article>`).join('')}</div>`
     : `<article class="config-card single">${renderObjectFields(value, activeCategory)}</article>`;
   if (activeCategory === 'maps') root.insertAdjacentHTML('afterbegin', renderMapPreview(configDraft.maps[0]));
+  if (activeCategory === 'monsters') root.insertAdjacentHTML('afterbegin', `<div class="editor-actions">${button('新增怪物', 'add-monster')}${button('复制最后一项', 'clone-monster', 'ghost')}${button('删除最后一项', 'delete-monster', 'danger ghost')}</div>`);
   bindConfigInputs(root);
   if (activeCategory === 'maps') bindMapPreview();
+  if (activeCategory === 'monsters') bindActions(root, {
+    'add-monster': () => { const source = structuredClone(configDraft.monsters[0]); source.id = `monster_${Date.now().toString(36)}`; source.name = '新怪物'; delete source.spawnConfig; configDraft.monsters.push(source); renderConfigFields(); },
+    'clone-monster': () => { const source = structuredClone(configDraft.monsters.at(-1)); source.id = `${source.id}_copy_${Date.now().toString(36).slice(-4)}`; source.name += ' 副本'; configDraft.monsters.push(source); renderConfigFields(); },
+    'delete-monster': () => deleteLastMonster()
+  });
+}
+
+function deleteLastMonster() {
+  const monster = configDraft.monsters.at(-1);
+  if (!monster || ['passive', 'wanderer', 'tracker', 'basic_nest'].includes(monster.id)) return toast('内置怪物不能删除', true);
+  const referenced = configDraft.maps.some((map) => map.monsterSpawns.some((spawn) => spawn.monsterId === monster.id)
+    || (map.randomSpawnRules || []).some((rule) => rule.monsterConfigId === monster.id))
+    || configDraft.monsters.some((item) => item.spawnConfig?.monsterConfigId === monster.id);
+  if (referenced) return toast('该怪物仍被地图、随机规则或巢穴引用', true);
+  configDraft.monsters.pop(); renderConfigFields();
 }
 
 function renderMapPreview(map) {
   const obstacleSet = new Set(map.obstacles.map((item) => `${item.x},${item.y}`));
   const spawnMap = new Map(map.monsterSpawns.map((item) => [`${item.x},${item.y}`, item.monsterId]));
-  return `<article class="map-preview-card"><header><div><strong>20×20 配置预览</strong><small>这是关卡配置，不是运行时 GM 工具</small></div><select id="map-brush"><option value="obstacle">障碍</option><option value="spawn">玩家出生点</option><option value="extract">撤离点</option>${configDraft.monsters.map((item) => `<option value="monster:${item.id}">怪物：${item.name}</option>`).join('')}<option value="erase">删除</option></select></header><div class="map-preview-grid">${Array.from({ length: map.width * map.height }, (_, index) => { const x = index % map.width, y = Math.floor(index / map.width), key = `${x},${y}`; let type = obstacleSet.has(key) ? 'obstacle' : ''; if (map.playerSpawn.x === x && map.playerSpawn.y === y) type = 'spawn'; if (map.extractPoint.x === x && map.extractPoint.y === y) type = 'extract'; if (spawnMap.has(key)) type = `monster ${spawnMap.get(key)}`; return `<button class="${type}" data-map-x="${x}" data-map-y="${y}" title="(${x},${y})"></button>`; }).join('')}</div></article>`;
+  return `<article class="map-preview-card"><header><div><strong>${map.width}×${map.height} 配置预览</strong><small>这是关卡配置，不是运行时 GM 工具</small></div><select id="map-brush"><option value="obstacle">障碍</option><option value="spawn">玩家出生点</option><option value="extract">撤离点</option>${configDraft.monsters.map((item) => `<option value="monster:${item.id}">怪物：${item.name}</option>`).join('')}<option value="erase">删除</option></select></header><div class="map-preview-grid" style="grid-template-columns:repeat(${map.width},1fr)">${Array.from({ length: map.width * map.height }, (_, index) => { const x = index % map.width, y = Math.floor(index / map.width), key = `${x},${y}`; let type = obstacleSet.has(key) ? 'obstacle' : ''; if (map.playerSpawn.x === x && map.playerSpawn.y === y) type = 'spawn'; if (map.extractPoint.x === x && map.extractPoint.y === y) type = 'extract'; if (spawnMap.has(key)) type = `monster ${spawnMap.get(key)}`; return `<button class="${type}" data-map-x="${x}" data-map-y="${y}" title="(${x},${y})"></button>`; }).join('')}</div></article>`;
+}
+
+function renderMapEditor(map) {
+  const obstacleSet = new Set((map.obstacles || []).map((item) => `${item.x},${item.y}`));
+  const spawnMap = new Map((map.monsterSpawns || []).map((item) => [`${item.x},${item.y}`, item.monsterId]));
+  const extracts = new Set((map.extractionPoints || [map.extractPoint]).map((item) => `${item.x},${item.y}`));
+  return `<article class="map-editor-card">
+    <header class="map-editor-toolbar">
+      <label>宽 <input id="map-width" type="number" min="10" max="50" value="${map.width}"></label>
+      <label>高 <input id="map-height" type="number" min="10" max="50" value="${map.height}"></label>
+      <select id="map-brush"><option value="ground">地面</option><option value="obstacle">障碍</option><option value="spawn">玩家出生点</option><option value="extract">撤离点</option>${configDraft.monsters.map((item) => `<option value="monster:${item.id}">怪物：${item.name}</option>`).join('')}<option value="erase">删除</option></select>
+      ${button('应用尺寸', 'resize-map')}${button('清空对象', 'clear-map', 'ghost')}${button('试玩当前地图', 'playtest-map', 'primary')}
+    </header>
+    <div class="seed-toolbar"><label><input id="fixed-seed" type="checkbox" ${map.random?.useFixedSeed ? 'checked' : ''}> 固定 Seed</label><input id="map-seed" value="${map.random?.seed || ''}">${button('生成 Seed', 'generate-seed')}${button('复制 Seed', 'copy-seed', 'ghost')}</div>
+    <p class="editor-help">点击或按住拖动绘制。视图可横向、纵向滚动；巢穴与普通怪物使用同一放置工具。</p>
+    <div class="map-editor-viewport"><div class="map-preview-grid map-authoring-grid" style="--map-columns:${map.width}">${Array.from({ length: map.width * map.height }, (_, index) => { const x = index % map.width, y = Math.floor(index / map.width), key = `${x},${y}`; let type = obstacleSet.has(key) ? 'obstacle' : ''; if (map.playerSpawn.x === x && map.playerSpawn.y === y) type = 'spawn'; if (extracts.has(key)) type = 'extract'; if (spawnMap.has(key)) type = `monster ${spawnMap.get(key)}`; return `<button class="${type}" data-map-x="${x}" data-map-y="${y}" title="(${x},${y})"></button>`; }).join('')}</div></div>
+  </article>`;
 }
 
 function bindMapPreview() {
-  document.querySelectorAll('[data-map-x]').forEach((cell) => cell.addEventListener('click', () => {
+  const currentMap = configDraft.maps[0];
+  let painting = false;
+  const paint = (cell) => {
     const map = configDraft.maps[0], x = Number(cell.dataset.mapX), y = Number(cell.dataset.mapY), brush = document.querySelector('#map-brush').value;
-    const clear = () => { map.obstacles = map.obstacles.filter((item) => item.x !== x || item.y !== y); map.monsterSpawns = map.monsterSpawns.filter((item) => item.x !== x || item.y !== y); };
+    const onPlayerSpawn = map.playerSpawn.x === x && map.playerSpawn.y === y;
+    const onExtraction = (map.extractionPoints || [map.extractPoint]).some((item) => item.x === x && item.y === y);
+    if (onPlayerSpawn && brush !== 'spawn') return toast('玩家出生点不能与其他对象重叠', true);
+    if (onExtraction && brush !== 'extract') return toast('撤离点不能与其他对象重叠', true);
+    const clear = () => {
+      map.obstacles = map.obstacles.filter((item) => item.x !== x || item.y !== y);
+      map.monsterSpawns = map.monsterSpawns.filter((item) => item.x !== x || item.y !== y);
+      map.extractionPoints = (map.extractionPoints || [map.extractPoint]).filter((item) => item.x !== x || item.y !== y);
+    };
     clear();
     if (brush === 'obstacle') map.obstacles.push({ x, y });
     else if (brush === 'spawn') map.playerSpawn = { x, y };
-    else if (brush === 'extract') map.extractPoint = { ...map.extractPoint, x, y };
+    else if (brush === 'extract') map.extractionPoints.push({ x, y, requiredTurns: map.extractPoint?.requiredTurns || 3 });
     else if (brush.startsWith('monster:')) map.monsterSpawns.push({ monsterId: brush.split(':')[1], x, y, count: 1 });
-    renderConfigFields();
-  }));
+    map.extractPoint = map.extractionPoints[0] || map.extractPoint;
+    refreshMapCellClasses(map);
+  };
+  document.querySelectorAll('[data-map-x]').forEach((cell) => {
+    cell.addEventListener('pointerdown', (event) => { event.preventDefault(); painting = true; paint(cell); });
+    cell.addEventListener('pointerenter', () => { if (painting && ['ground', 'obstacle', 'erase'].includes(document.querySelector('#map-brush')?.value)) paint(cell); });
+  });
+  addEventListener('pointerup', () => { painting = false; }, { once: true });
+  const editor = document.querySelector('.map-editor-card');
+  if (!editor) return;
+  bindActions(editor, {
+    'resize-map': () => { const map = configDraft.maps[0]; map.width = Number(document.querySelector('#map-width').value); map.height = Number(document.querySelector('#map-height').value); trimMapToBounds(map); renderConfigFields(); },
+    'clear-map': () => { const map = configDraft.maps[0]; map.obstacles = []; map.monsterSpawns = []; renderConfigFields(); },
+    'generate-seed': () => { configDraft.maps[0].random.seed = globalThis.crypto?.randomUUID?.() || Date.now().toString(36); renderConfigFields(); },
+    'copy-seed': async () => { await navigator.clipboard?.writeText(configDraft.maps[0].random.seed); toast('Seed 已复制'); },
+    'playtest-map': startMapPlaytest
+  });
+  document.querySelector('#fixed-seed')?.addEventListener('change', (event) => { currentMap.random.useFixedSeed = event.target.checked; });
+  document.querySelector('#map-seed')?.addEventListener('change', (event) => { currentMap.random.seed = event.target.value; });
+}
+
+function refreshMapCellClasses(map) {
+  const obstacles = new Set(map.obstacles.map((item) => `${item.x},${item.y}`));
+  const monsters = new Map(map.monsterSpawns.map((item) => [`${item.x},${item.y}`, item.monsterId]));
+  const extracts = new Set((map.extractionPoints || [map.extractPoint]).map((item) => `${item.x},${item.y}`));
+  document.querySelectorAll('[data-map-x]').forEach((cell) => {
+    const key = `${cell.dataset.mapX},${cell.dataset.mapY}`;
+    let type = obstacles.has(key) ? 'obstacle' : '';
+    if (`${map.playerSpawn.x},${map.playerSpawn.y}` === key) type = 'spawn';
+    if (extracts.has(key)) type = 'extract';
+    if (monsters.has(key)) type = `monster ${monsters.get(key)}`;
+    cell.className = type;
+  });
+}
+
+function startMapPlaytest() {
+  if (!validateDraft()) return;
+  playtestState = { config, save, activeCategory };
+  config = structuredClone(configDraft);
+  save = createInitialSave(config);
+  save.activeExpedition = null;
+  startExpedition();
+  toast(`试玩 Seed：${config.maps[0].random.seed}`);
+}
+
+function leaveMapPlaytest() {
+  runtime?.stop();
+  const previous = playtestState;
+  if (!previous) return renderShelter();
+  config = previous.config; save = previous.save; activeCategory = 'mapEditor'; playtestState = null; runtime = null;
+  renderConfig();
 }
 
 function renderObjectFields(object, path) {
