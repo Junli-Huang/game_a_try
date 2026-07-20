@@ -142,6 +142,7 @@ button.wide { width: 100%; margin-top: 1rem; }
 .battle-log { min-height: 130px; padding: 1rem; border: 1px solid #2e403a; border-radius: 8px; background: #090f0d; }.battle-log p { margin: 0 0 .45rem; color: #bdcbc5; font-size: .8rem; }
 .battle-actions { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; }.battle-actions button { min-height: 58px; }.battle-actions button:disabled { opacity: .35; cursor: not-allowed; }
 .battle-actions.player-turn { padding: .45rem; border: 1px solid #8db19e55; border-radius: 10px; box-shadow: 0 0 24px #77a88c22; }.battle-actions .recommended-action { border-color: #85bd9d; background: #254638; box-shadow: 0 0 16px #6db18b30; animation: action-ready 1.2s ease-in-out infinite; }
+.battle-actions button.keyboard-selected, .battle-actions button:focus-visible { outline: 3px solid #f0d58f; outline-offset: 2px; border-color: #f0d58f; background: #395746; box-shadow: 0 0 22px #e7cb7d66; }
 @keyframes action-ready { 50% { filter: brightness(1.2); } }
 
 .config-screen { height: 100vh; display: grid; grid-template-rows: auto 1fr auto; padding: 1.4rem; background: #0d1412; overflow: hidden; }
