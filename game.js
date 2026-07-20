@@ -15,7 +15,6 @@ let activeCategory = 'global';
 let goalService = new GoalService(config);
 let madnessPresentation = new MadnessPresentationService(config);
 let audioService = new AudioService(config);
-let battleKeyboardHandler = null;
 addEventListener('pointerdown', () => audioService.unlock(), { once: true });
 
 const labels = {
@@ -66,7 +65,6 @@ function bindActions(root, actions) {
 }
 
 function renderMain() {
-  clearBattleKeyboard();
   runtime?.stop(); runtime = null;
   app.innerHTML = `
     <section class="menu-screen">
@@ -207,7 +205,6 @@ function showGoalResultIfNeeded() {
 function resetGame() { localStorage.removeItem(SAVE_STORAGE_KEY); save = createInitialSave(config); closeModal(); renderShelter(); }
 
 function startExpedition() {
-  clearBattleKeyboard();
   const madnessView = madnessPresentation.stage(save.madness), progress = goalService.progress(save);
   app.innerHTML = `
     <section class="game-screen madness-${madnessView.id} ${config.madnessPresentation.reducedMotion ? 'reduced-motion' : ''}">
@@ -237,6 +234,7 @@ function startExpedition() {
     onNotice: renderNotice,
     onBattleTransition: renderBattleTransition,
     onBattle: renderBattle,
+    onBattleKey: handleBattleKey,
     onBattleResult: renderBattleResult,
     onMapEvent: renderMapEvent,
     onMapEventResult: renderMapEventResult,
@@ -318,7 +316,6 @@ function renderNotice(notice) {
 }
 
 function renderBattleTransition(view, enter) {
-  clearBattleKeyboard();
   const layer = document.querySelector('#battle-layer');
   if (!layer) return enter();
   layer.hidden = false;
@@ -329,7 +326,6 @@ function renderBattleTransition(view, enter) {
 }
 
 function renderBattleResult(result, finish) {
-  clearBattleKeyboard();
   const layer = document.querySelector('#battle-layer');
   if (!layer) return finish();
   layer.hidden = false;
@@ -356,26 +352,7 @@ function renderBattle(view, act) {
   const menu = layer.querySelector('#battle-action-menu');
   const bindMenuKeyboard = () => {
     const buttons = [...menu.querySelectorAll('button:not(:disabled)')];
-    let selectedIndex = 0;
-    const select = (index) => {
-      selectedIndex = (index + buttons.length) % buttons.length;
-      buttons.forEach((button, cursor) => button.classList.toggle('keyboard-selected', cursor === selectedIndex));
-      buttons[selectedIndex]?.focus({ preventScroll: true });
-    };
-    clearBattleKeyboard();
-    battleKeyboardHandler = (event) => {
-      if (!buttons.length || layer.hidden || !layer.contains(menu)) return;
-      const offsets = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -2, ArrowDown: 2 };
-      if (event.key in offsets) {
-        event.preventDefault(); event.stopPropagation();
-        select(selectedIndex + offsets[event.key]);
-      } else if (event.key === 'Enter' || event.key === ' ') {
-        event.preventDefault(); event.stopPropagation();
-        buttons[selectedIndex]?.click();
-      }
-    };
-    addEventListener('keydown', battleKeyboardHandler, true);
-    select(0);
+    selectBattleButton(buttons, 0);
   };
   const renderActions = () => {
     menu.innerHTML = view.actions.map((action, index) => `<button data-battle-action="${action}" class="${index === 0 ? 'recommended-action' : ''}">${names[action]}</button>`).join('');
@@ -396,10 +373,29 @@ function renderBattle(view, act) {
   renderActions();
 }
 
-function clearBattleKeyboard() {
-  if (!battleKeyboardHandler) return;
-  removeEventListener('keydown', battleKeyboardHandler, true);
-  battleKeyboardHandler = null;
+function selectBattleButton(buttons, index) {
+  if (!buttons.length) return;
+  const selectedIndex = (index + buttons.length) % buttons.length;
+  buttons.forEach((button, cursor) => button.classList.toggle('keyboard-selected', cursor === selectedIndex));
+  buttons[selectedIndex]?.focus({ preventScroll: true });
+}
+
+function handleBattleKey(key) {
+  const menu = document.querySelector('#battle-action-menu');
+  if (!menu) return false;
+  const buttons = [...menu.querySelectorAll('button:not(:disabled)')];
+  if (!buttons.length) return false;
+  const current = Math.max(0, buttons.findIndex((button) => button.classList.contains('keyboard-selected')));
+  const offsets = { ArrowLeft: -1, a: -1, A: -1, ArrowRight: 1, d: 1, D: 1, ArrowUp: -2, w: -2, W: -2, ArrowDown: 2, s: 2, S: 2 };
+  if (key in offsets) {
+    selectBattleButton(buttons, current + offsets[key]);
+    return true;
+  }
+  if (key === 'Enter' || key === ' ') {
+    buttons[current]?.click();
+    return true;
+  }
+  return false;
 }
 
 const categoryDescriptions = {
