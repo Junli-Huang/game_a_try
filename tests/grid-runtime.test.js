@@ -121,3 +121,14 @@ test('hunger decreases on movement only', () => {
   assert.equal(runtime.player.hunger, 49);
   assert.deepEqual(runtime.config.battle.playerActions, ['attack', 'defend', 'item', 'escape']);
 });
+
+test('battle keys are routed through the runtime input listener', () => {
+  const runtime = createRuntime();
+  const received = [];
+  runtime.mode = 'BATTLE';
+  runtime.callbacks.onBattleKey = (key) => { received.push(key); return true; };
+  let prevented = false;
+  runtime.onKeyDown({ key: 'ArrowRight', preventDefault: () => { prevented = true; } });
+  assert.deepEqual(received, ['ArrowRight']);
+  assert.equal(prevented, true);
+});
