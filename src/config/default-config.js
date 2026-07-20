@@ -14,7 +14,7 @@ export const DEFAULT_CONFIG = {
   },
   player: {
     health: 100,
-    hunger: 82,
+    hunger: 100,
     madness: 0,
     speed: 10,
     radius: 16,
