@@ -26,6 +26,15 @@ export class ConfigService {
     if (Array.isArray(migrated.battle?.playerActions)) {
       migrated.battle.playerActions = migrated.battle.playerActions.map((action) => action === 'eat' ? 'item' : action);
     }
+    const defaults = this.loadDefaultConfig();
+    migrated.version = '1.3.0';
+    migrated.maps = (migrated.maps || defaults.maps).map((map, index) => ({
+      ...(defaults.maps[index] || defaults.maps[0]),
+      ...map,
+      extractionPoints: map.extractionPoints || (map.extractPoint ? [map.extractPoint] : structuredClone(defaults.maps[0].extractionPoints)),
+      random: { ...defaults.maps[0].random, ...(map.random || {}) },
+      randomSpawnRules: map.randomSpawnRules || []
+    }));
     return migrated;
   }
 
@@ -90,15 +99,38 @@ export class ConfigService {
     });
 
     config.maps.forEach((map) => {
-      const inside = (point) => point.x >= 0 && point.y >= 0 && point.x <= map.width && point.y <= map.height;
+      const inside = (point) => point && point.x >= 0 && point.y >= 0 && point.x < map.width && point.y < map.height;
+      if (!Number.isInteger(map.width) || map.width < 10 || map.width > 50) errors.push(`${map.name}：地图宽度必须为 10～50 的整数`);
+      if (!Number.isInteger(map.height) || map.height < 10 || map.height > 50) errors.push(`${map.name}：地图高度必须为 10～50 的整数`);
       if (!inside(map.playerSpawn)) errors.push(`${map.name}：玩家出生点超出地图边界`);
-      if (!inside(map.extractPoint)) errors.push(`${map.name}：撤离点超出地图边界`);
-      if (map.width !== 20 || map.height !== 20) errors.push(`${map.name}：V1.1 地图必须为 20×20`);
+      const extracts = map.extractionPoints || [map.extractPoint];
+      if (!extracts.length) errors.push(`${map.name}：至少需要一个撤离点`);
+      extracts.forEach((point) => { if (!inside(point)) errors.push(`${map.name}：撤离点超出地图边界`); });
       if (!map.fogOfWar || map.fogOfWar.visionRadius < 1) errors.push(`${map.name}：视野半径必须大于 0`);
+      const obstacles = new Set((map.obstacles || []).map((item) => `${item.x},${item.y}`));
+      const occupied = new Set([`${map.playerSpawn.x},${map.playerSpawn.y}`]);
+      if (obstacles.has(`${map.playerSpawn.x},${map.playerSpawn.y}`)) errors.push(`${map.name}：玩家出生点不能位于障碍格`);
+      extracts.forEach((point) => {
+        const key = `${point.x},${point.y}`;
+        if (obstacles.has(key)) errors.push(`${map.name}：撤离点不能位于障碍格`);
+        if (occupied.has(key)) errors.push(`${map.name}：撤离点不能与其他对象重叠`);
+        occupied.add(key);
+      });
       map.monsterSpawns.forEach((spawn) => {
         if (!monsterIds.has(spawn.monsterId)) errors.push(`${map.name} 引用了不存在的怪物：${spawn.monsterId}`);
         if (!inside(spawn)) errors.push(`${map.name} 的怪物出生点超出边界`);
+        if (obstacles.has(`${spawn.x},${spawn.y}`)) errors.push(`${map.name}：怪物不能位于障碍格`);
+        const key = `${spawn.x},${spawn.y}`;
+        if (occupied.has(key)) errors.push(`${map.name}：固定怪物不能与其他对象重叠`);
+        occupied.add(key);
       });
+      (map.randomSpawnRules || []).forEach((rule) => {
+        if (!monsterIds.has(rule.monsterConfigId)) errors.push(`${map.name} 随机规则引用了不存在的怪物：${rule.monsterConfigId}`);
+        if (rule.minCount < 0 || rule.maxCount < rule.minCount) errors.push(`${map.name}：随机规则 ${rule.id} 数量范围无效`);
+      });
+    });
+    config.monsters.forEach((monster) => {
+      if (monster.spawnConfig?.enabled && !monsterIds.has(monster.spawnConfig.monsterConfigId)) errors.push(`${monster.name} 产出配置引用了不存在的怪物：${monster.spawnConfig.monsterConfigId}`);
     });
     config.farming.forEach((crop) => {
       if (!foodIds.has(crop.yieldItem)) errors.push(`${crop.name} 引用了不存在的产物：${crop.yieldItem}`);

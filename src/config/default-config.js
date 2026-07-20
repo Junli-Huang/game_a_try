@@ -1,5 +1,5 @@
 export const DEFAULT_CONFIG = {
-  version: '1.2.0',
+  version: '1.3.0',
   global: {
     maxHealth: 100,
     maxHunger: 100,
@@ -54,6 +54,20 @@ export const DEFAULT_CONFIG = {
       maxChaseDistance: 8, maxHomeDistance: 7, returnHome: true,
       disengageCooldownTurns: 3, canHarvest: true,
       harvestTurns: 4, meatYield: 5, carriedLoot: []
+    },
+    {
+      id: 'basic_nest', name: '腐化巢穴', color: '#a66ed1', health: 30, attack: 0,
+      defense: 2, speed: 0, actionSpeed: 0, canMove: false, canWander: false,
+      actionChance: 0, maxMovesPerTurn: 0, wanderRadius: 0,
+      hostile: false, detectRange: 0, detectRadius: 0, alertDuration: 0, attackIntentRange: 0, canChase: false,
+      maxChaseDistance: 0, maxHomeDistance: 0, returnHome: false,
+      disengageCooldownTurns: 1, canHarvest: true,
+      harvestTurns: 4, meatYield: 5, carriedLoot: [],
+      spawnConfig: {
+        enabled: true, monsterConfigId: 'wanderer', intervalTurns: 6, initialDelayTurns: 3,
+        maxAliveChildren: 4, maxTotalChildren: 8, spawnRadiusMin: 1, spawnRadiusMax: 3,
+        spawnOnVisibleTile: true, requireWalkableTile: true, childHomeLinkedToSpawner: true
+      }
     }
   ],
   foods: [
@@ -77,10 +91,18 @@ export const DEFAULT_CONFIG = {
       fogOfWar: { enabled: true, visionRadius: 3, shape: 'square', terrainBlocksVision: false, exploredBrightness: 0.38, showEnemyMemory: true, showCorpseMemory: true },
       playerSpawn: { x: 1, y: 10 },
       extractPoint: { x: 18, y: 2, requiredTurns: 3 },
+      extractionPoints: [{ x: 18, y: 2, requiredTurns: 3 }],
+      random: { useFixedSeed: true, seed: 'fog-v13-demo' },
+      randomSpawnRules: [
+        { id: 'random-wanderers', enabled: true, monsterConfigId: 'wanderer', minCount: 1, maxCount: 2,
+          allowedArea: { x: 4, y: 3, width: 13, height: 14 }, excludedAreas: [], minDistanceFromPlayerSpawn: 5,
+          minDistanceFromExtraction: 3, minDistanceBetweenSameType: 2, minDistanceBetweenAnyMonster: 1, placementAttempts: 120 }
+      ],
       monsterSpawns: [
         { monsterId: 'passive', x: 5, y: 6, count: 2 },
         { monsterId: 'wanderer', x: 10, y: 12, count: 2 },
-        { monsterId: 'tracker', x: 15, y: 15, count: 1 }
+        { monsterId: 'tracker', x: 15, y: 15, count: 1 },
+        { monsterId: 'basic_nest', x: 13, y: 6, count: 1 }
       ],
       obstacles: [
         { x: 4, y: 3 }, { x: 5, y: 3 }, { x: 6, y: 3 },

@@ -1,4 +1,5 @@
 import { MapEventService } from './systems/map-event-service.js';
+import { createExpeditionSeed, createSeededRandom, generateRandomPlacements } from './systems/map-generation.js';
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const manhattan = (a, b) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
@@ -13,9 +14,11 @@ export class GridExplorationRuntime {
     this.save = save;
     this.callbacks = callbacks;
     this.mapConfig = config.maps[0];
-    this.tileSize = Math.floor(760 / Math.max(this.mapConfig.width, this.mapConfig.height));
-    this.canvas.width = this.mapConfig.width * this.tileSize;
-    this.canvas.height = this.mapConfig.height * this.tileSize;
+    this.viewWidth = Math.min(20, this.mapConfig.width);
+    this.viewHeight = Math.min(20, this.mapConfig.height);
+    this.tileSize = Math.floor(760 / Math.max(this.viewWidth, this.viewHeight));
+    this.canvas.width = this.viewWidth * this.tileSize;
+    this.canvas.height = this.viewHeight * this.tileSize;
     this.running = false;
     this.mode = 'OUTDOOR_EXPLORATION';
     this.turn = 0;
@@ -26,6 +29,10 @@ export class GridExplorationRuntime {
 
   start() {
     this.tiles = this.createTiles();
+    this.seed = this.save.activeExpedition?.mapId === this.mapConfig.id
+      ? this.save.activeExpedition.seed
+      : createExpeditionSeed(this.mapConfig);
+    this.random = createSeededRandom(`${this.seed}:runtime`);
     this.player = {
       x: this.mapConfig.playerSpawn.x, y: this.mapConfig.playerSpawn.y,
       health: this.config.player.health, hunger: this.config.player.hunger,
@@ -36,10 +43,12 @@ export class GridExplorationRuntime {
     this.battle = null;
     this.visitedTiles = new Set([keyOf(this.player.x, this.player.y)]);
     this.eventService = new MapEventService(this.config);
+    this.restoreExpedition();
     this.running = true;
     addEventListener('keydown', this.boundKeyDown);
     this.canvas.addEventListener('click', this.boundClick);
     this.updateVision();
+    this.persistExpedition();
     this.render();
   }
 
@@ -63,17 +72,21 @@ export class GridExplorationRuntime {
 
   spawnMonsters() {
     const monsters = [];
-    this.mapConfig.monsterSpawns.forEach((spawn) => {
+    const monsterIds = new Set(this.config.monsters.map((item) => item.id));
+    const randomSpawns = generateRandomPlacements(this.mapConfig, monsterIds, this.seed, this.mapConfig.monsterSpawns || []);
+    [...(this.mapConfig.monsterSpawns || []), ...randomSpawns].forEach((spawn) => {
       const config = this.config.monsters.find((item) => item.id === spawn.monsterId);
       if (!config) return;
       for (let index = 0; index < spawn.count; index += 1) {
         const position = this.findFreeSpawn(spawn.x, spawn.y, index, monsters);
-        monsters.push({
+        const monster = {
           id: `${config.id}-${monsters.length}`, config, x: position.x, y: position.y,
           homeX: position.x, homeY: position.y, health: config.health,
           state: config.canWander ? 'Wander' : 'Idle', cooldownTurns: 0,
-          alertTurns: 0, intent: null
-        });
+          alertTurns: 0, intent: null, spawnedByMonsterId: null,
+          spawnTurnsLeft: config.spawnConfig?.initialDelayTurns ?? 0, spawnedTotal: 0
+        };
+        monsters.push(monster);
       }
     });
     return monsters;
@@ -97,11 +110,13 @@ export class GridExplorationRuntime {
     const monster = this.monsterAt(x, y);
     const corpse = this.corpseAt(x, y);
     return {
-      enemy: monster ? { id: monster.id, name: monster.config.name, color: monster.config.color, state: monster.state } : null,
+      enemy: monster ? { id: monster.id, name: monster.config.name, color: monster.config.color, state: monster.state, isSpawner: Boolean(monster.config.spawnConfig?.enabled) } : null,
       corpse: corpse ? { id: corpse.id, name: corpse.config.name, harvested: corpse.harvested } : null,
-      extract: x === this.mapConfig.extractPoint.x && y === this.mapConfig.extractPoint.y
+      extract: this.extractionAt(x, y)
     };
   }
+
+  extractionAt(x, y) { return (this.mapConfig.extractionPoints || [this.mapConfig.extractPoint]).find((point) => point.x === x && point.y === y) || null; }
 
   updateVision() {
     const fog = this.mapConfig.fogOfWar;
@@ -132,8 +147,9 @@ export class GridExplorationRuntime {
   onCanvasClick(event) {
     if (this.mode !== 'OUTDOOR_EXPLORATION') return;
     const rect = this.canvas.getBoundingClientRect();
-    const x = Math.floor((event.clientX - rect.left) * this.canvas.width / rect.width / this.tileSize);
-    const y = Math.floor((event.clientY - rect.top) * this.canvas.height / rect.height / this.tileSize);
+    const camera = this.getCamera();
+    const x = camera.x + Math.floor((event.clientX - rect.left) * this.canvas.width / rect.width / this.tileSize);
+    const y = camera.y + Math.floor((event.clientY - rect.top) * this.canvas.height / rect.height / this.tileSize);
     if (manhattan(this.player, { x, y }) === 1) this.movePlayer(x - this.player.x, y - this.player.y);
   }
 
@@ -207,7 +223,7 @@ export class GridExplorationRuntime {
     if (this.mode !== 'OUTDOOR_EXPLORATION') return;
     const corpse = this.corpseAt(this.player.x, this.player.y);
     if (corpse) return this.harvest(corpse);
-    if (this.player.x === this.mapConfig.extractPoint.x && this.player.y === this.mapConfig.extractPoint.y) return this.extract();
+    if (this.extractionAt(this.player.x, this.player.y)) return this.extract();
     this.setMessage('这个格子没有可以交互的对象。');
     this.render();
   }
@@ -218,7 +234,7 @@ export class GridExplorationRuntime {
       const full = this.player.loot.monsterMeat >= this.config.player.inventoryCapacity;
       return { type: 'harvest', label: full ? '背包已满' : '切割尸体', enabled: !full, tone: 'danger' };
     }
-    if (this.player.x === this.mapConfig.extractPoint.x && this.player.y === this.mapConfig.extractPoint.y) {
+    if (this.extractionAt(this.player.x, this.player.y)) {
       return { type: 'extract', label: '开始撤离', enabled: true, tone: 'gold' };
     }
     return { type: null, label: '暂无交互', enabled: false, tone: 'muted' };
@@ -240,7 +256,7 @@ export class GridExplorationRuntime {
   }
 
   extract() {
-    const turns = Math.max(1, this.mapConfig.extractPoint.requiredTurns);
+    const turns = Math.max(1, this.extractionAt(this.player.x, this.player.y)?.requiredTurns || 1);
     this.setMessage(`开始撤离，需要守住 ${turns} 个地图回合。`);
     for (let index = 0; index < turns && this.mode === 'OUTDOOR_EXPLORATION'; index += 1) this.advanceMapTurn('wait', false);
     if (this.mode === 'OUTDOOR_EXPLORATION') this.succeedExpedition();
@@ -255,8 +271,35 @@ export class GridExplorationRuntime {
       if (this.mode !== 'OUTDOOR_EXPLORATION') break;
       this.updateMonster(monster);
     }
+    if (this.mode === 'OUTDOOR_EXPLORATION') this.updateSpawners();
     this.updateVision();
+    this.persistExpedition();
     if (render) this.render();
+  }
+
+  persistExpedition() {
+    if ((!this.running && this.turn > 0) || !this.visitedTiles || !this.tiles || !this.monsters || !this.corpses) return;
+    this.save.activeExpedition = {
+      mapId: this.mapConfig.id, seed: this.seed, turn: this.turn,
+      player: clone(this.player),
+      monsters: this.monsters.map((item) => ({ ...item, configId: item.config.id, config: undefined })),
+      corpses: this.corpses.map((item) => ({ ...item, configId: item.config.id, config: undefined })),
+      visitedTiles: [...this.visitedTiles],
+      tileMemory: this.tiles.filter((tile) => tile.visibility !== 'unexplored').map((tile) => ({ x: tile.x, y: tile.y, visibility: tile.visibility, rememberedContent: tile.rememberedContent }))
+    };
+    this.callbacks.onSave?.(this.save);
+  }
+
+  restoreExpedition() {
+    const snapshot = this.save.activeExpedition;
+    if (!snapshot?.player || snapshot.mapId !== this.mapConfig.id) return;
+    this.turn = snapshot.turn || 0;
+    this.player = clone(snapshot.player);
+    this.monsters = (snapshot.monsters || []).map((item) => ({ ...item, config: this.config.monsters.find((config) => config.id === item.configId) })).filter((item) => item.config);
+    this.corpses = (snapshot.corpses || []).map((item) => ({ ...item, config: this.config.monsters.find((config) => config.id === item.configId) })).filter((item) => item.config);
+    this.visitedTiles = new Set(snapshot.visitedTiles || []);
+    for (const memory of snapshot.tileMemory || []) Object.assign(this.tileAt(memory.x, memory.y), memory);
+    this.message = `已恢复外出记录 · Seed ${this.seed}`;
   }
 
   consumeHunger(type) {
@@ -268,6 +311,7 @@ export class GridExplorationRuntime {
   updateMonster(monster) {
     const cfg = monster.config;
     monster.intent = null;
+    if (cfg.spawnConfig?.enabled) return;
     if (monster.cooldownTurns > 0) {
       monster.cooldownTurns -= 1;
       if (monster.cooldownTurns === 0) monster.state = cfg.canWander ? 'Wander' : 'Idle';
@@ -290,7 +334,8 @@ export class GridExplorationRuntime {
       } else return;
     }
     if (['Chase', 'AttackIntent'].includes(monster.state) && (playerDistance > cfg.maxChaseDistance || homeDistance > cfg.maxHomeDistance)) monster.state = cfg.returnHome ? 'Return' : 'Idle';
-    if (!cfg.canMove || Math.random() > cfg.actionChance) return;
+    const random = this.random || Math.random;
+    if (!cfg.canMove || random() > cfg.actionChance) return;
     let target = null;
     if (['Chase', 'AttackIntent'].includes(monster.state)) target = this.bestStepToward(monster, this.player);
     else if (monster.state === 'Return') {
@@ -299,7 +344,7 @@ export class GridExplorationRuntime {
     } else if (cfg.canWander) {
       monster.state = 'Wander';
       const choices = this.neighbors(monster.x, monster.y).filter((tile) => manhattan(tile, { x: monster.homeX, y: monster.homeY }) <= cfg.wanderRadius);
-      target = choices[Math.floor(Math.random() * choices.length)];
+      target = choices[Math.floor(random() * choices.length)];
     }
     if (!target) return;
     if (target.x === this.player.x && target.y === this.player.y) {
@@ -312,6 +357,46 @@ export class GridExplorationRuntime {
       return this.startBattle(monster, 'enemy');
     }
     if (!this.monsterAt(target.x, target.y)) { monster.x = target.x; monster.y = target.y; }
+  }
+
+  updateSpawners() {
+    for (const spawner of [...this.monsters]) {
+      const cfg = spawner.config.spawnConfig;
+      if (!cfg?.enabled || spawner.health <= 0) continue;
+      spawner.spawnTurnsLeft -= 1;
+      if (spawner.spawnTurnsLeft > 0) continue;
+      spawner.spawnTurnsLeft = Math.max(1, cfg.intervalTurns);
+      const children = this.monsters.filter((item) => item.spawnedByMonsterId === spawner.id);
+      if (children.length >= cfg.maxAliveChildren) continue;
+      if (cfg.maxTotalChildren != null && spawner.spawnedTotal >= cfg.maxTotalChildren) continue;
+      const childConfig = this.config.monsters.find((item) => item.id === cfg.monsterConfigId);
+      const position = childConfig ? this.findSpawnerPosition(spawner, cfg) : null;
+      if (!position) continue;
+      const child = {
+        id: `${childConfig.id}-spawned-${this.turn}-${spawner.spawnedTotal}`, config: childConfig,
+        x: position.x, y: position.y, homeX: cfg.childHomeLinkedToSpawner ? spawner.x : position.x,
+        homeY: cfg.childHomeLinkedToSpawner ? spawner.y : position.y, health: childConfig.health,
+        state: childConfig.canWander ? 'Wander' : 'Idle', cooldownTurns: 0, alertTurns: 0, intent: null,
+        spawnedByMonsterId: spawner.id, spawnTurnsLeft: childConfig.spawnConfig?.initialDelayTurns ?? 0, spawnedTotal: 0
+      };
+      this.monsters.push(child);
+      spawner.spawnedTotal += 1;
+      this.notify('spawn', spawner, '巢穴中爬出了新的生物。');
+    }
+  }
+
+  findSpawnerPosition(spawner, cfg) {
+    const candidates = [];
+    for (let y = Math.max(0, spawner.y - cfg.spawnRadiusMax); y <= Math.min(this.mapConfig.height - 1, spawner.y + cfg.spawnRadiusMax); y += 1) {
+      for (let x = Math.max(0, spawner.x - cfg.spawnRadiusMax); x <= Math.min(this.mapConfig.width - 1, spawner.x + cfg.spawnRadiusMax); x += 1) {
+        const distance = manhattan(spawner, { x, y });
+        if (distance < cfg.spawnRadiusMin || distance > cfg.spawnRadiusMax) continue;
+        if (!this.tileAt(x, y)?.walkable || this.monsterAt(x, y) || (x === this.player.x && y === this.player.y) || this.extractionAt(x, y)) continue;
+        if (!cfg.spawnOnVisibleTile && this.tileAt(x, y).visibility === 'visible') continue;
+        candidates.push({ x, y });
+      }
+    }
+    return candidates.length ? candidates[Math.floor(this.random() * candidates.length)] : null;
   }
 
   notify(type, monster, message) {
@@ -382,6 +467,11 @@ export class GridExplorationRuntime {
   }
 
   enemyAttack() {
+    if ((this.battle.monster.config.attack || 0) <= 0) {
+      this.battle.log.push(`${this.battle.monster.config.name}正在蠕动。`);
+      this.battle.defending = false;
+      return;
+    }
     const gear = this.getEquipmentStats();
     const reduction = this.battle.defending ? this.config.battle.defenseDamageReduction : 0;
     const raw = Math.max(1, this.battle.monster.config.attack - gear.defense);
@@ -412,7 +502,7 @@ export class GridExplorationRuntime {
     if (this.config.battle.victoryPlayerMovesIntoEnemyTile) { this.player.x = monster.x; this.player.y = monster.y; }
     const finish = () => {
       this.mode = 'OUTDOOR_EXPLORATION'; this.battle = null;
-      this.setMessage(`${monster.config.name}倒下了。尸体就在脚下，可以切割。`);
+      this.setMessage(monster.config.spawnConfig?.enabled ? '巢穴停止了蠕动。尸体可以切割。' : `${monster.config.name}倒下了。尸体就在脚下，可以切割。`);
       this.updateVision(); this.render();
     };
     if (this.callbacks.onBattleResult) this.callbacks.onBattleResult({ type: 'victory', title: `击败 ${monster.config.name}`, detail: '尸体已留下，可以进行切割。' }, finish);
@@ -497,6 +587,7 @@ export class GridExplorationRuntime {
     this.save.madness = Math.round(this.player.madness);
     this.advanceFarm(); this.save.expeditions += 1;
     this.save.lastResult = { success: true, meat: this.player.loot.monsterMeat };
+    this.save.activeExpedition = null;
     this.stop(); this.callbacks.onComplete?.(this.save, true);
   }
 
@@ -506,6 +597,7 @@ export class GridExplorationRuntime {
     this.advanceFarm(); this.save.expeditions += 1;
     this.save.expeditionFailures = (this.save.expeditionFailures || 0) + 1;
     this.save.lastResult = { success: false, meat: this.config.global.loseLootOnDeath ? 0 : this.player.loot.monsterMeat };
+    this.save.activeExpedition = null;
     if (!this.config.global.loseLootOnDeath) this.save.monsterMeat += this.player.loot.monsterMeat;
     this.stop(); this.callbacks.onComplete?.(this.save, false);
   }
@@ -518,8 +610,9 @@ export class GridExplorationRuntime {
     if (!this.running || this.mode !== 'OUTDOOR_EXPLORATION') return;
     const ctx = this.ctx, size = this.tileSize, fog = this.mapConfig.fogOfWar;
     ctx.fillStyle = '#080d0c'; ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-    this.tiles.forEach((tile) => {
-      const px = tile.x * size, py = tile.y * size;
+    const camera = this.getCamera();
+    this.tiles.filter((tile) => tile.x >= camera.x && tile.y >= camera.y && tile.x < camera.x + this.viewWidth && tile.y < camera.y + this.viewHeight).forEach((tile) => {
+      const px = (tile.x - camera.x) * size, py = (tile.y - camera.y) * size;
       if (tile.visibility === 'unexplored') {
         ctx.fillStyle = '#050807'; ctx.fillRect(px, py, size, size); return;
       }
@@ -532,14 +625,22 @@ export class GridExplorationRuntime {
       if (content?.enemy && (tile.visibility === 'visible' || fog.showEnemyMemory)) this.drawEnemy(px, py, size, content.enemy, memory);
       if (memory) { ctx.fillStyle = `rgba(4,9,8,${1 - fog.exploredBrightness})`; ctx.fillRect(px, py, size, size); }
     });
-    this.drawPlayer();
+    this.drawPlayer(camera);
     this.callbacks.onHud?.(this.getHud());
   }
 
   drawEnemy(px, py, size, enemy, memory) {
     const ctx = this.ctx; ctx.save(); ctx.globalAlpha = memory ? .42 : 1;
     ctx.fillStyle = enemy.color; ctx.beginPath();
-    ctx.arc(px + size / 2, py + size / 2, size * .25, 0, Math.PI * 2); ctx.fill();
+    if (enemy.isSpawner) {
+      ctx.moveTo(px + size * .5, py + size * .15);
+      for (let index = 1; index < 10; index += 1) {
+        const angle = -Math.PI / 2 + index * Math.PI * 2 / 10;
+        const radius = index % 2 ? size * .2 : size * .34;
+        ctx.lineTo(px + size * .5 + Math.cos(angle) * radius, py + size * .5 + Math.sin(angle) * radius);
+      }
+      ctx.closePath(); ctx.fill();
+    } else { ctx.arc(px + size / 2, py + size / 2, size * .25, 0, Math.PI * 2); ctx.fill(); }
     if (!memory && ['Alert', 'Chase', 'AttackIntent'].includes(enemy.state)) {
       ctx.fillStyle = enemy.state === 'AttackIntent' ? '#ff5f5f' : '#f5d078';
       ctx.font = `700 ${size * .42}px sans-serif`; ctx.textAlign = 'center';
@@ -559,8 +660,15 @@ export class GridExplorationRuntime {
     ctx.strokeRect(px + 5, py + 5, size - 10, size - 10); ctx.restore();
   }
 
-  drawPlayer() {
-    const ctx = this.ctx, size = this.tileSize, px = this.player.x * size, py = this.player.y * size;
+  getCamera() {
+    return {
+      x: clamp(this.player.x - Math.floor(this.viewWidth / 2), 0, Math.max(0, this.mapConfig.width - this.viewWidth)),
+      y: clamp(this.player.y - Math.floor(this.viewHeight / 2), 0, Math.max(0, this.mapConfig.height - this.viewHeight))
+    };
+  }
+
+  drawPlayer(camera) {
+    const ctx = this.ctx, size = this.tileSize, px = (this.player.x - camera.x) * size, py = (this.player.y - camera.y) * size;
     ctx.fillStyle = '#d9f1e4'; ctx.beginPath(); ctx.arc(px + size / 2, py + size / 2, size * .3, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = '#263a33'; ctx.beginPath(); ctx.arc(px + size * .59, py + size * .43, size * .06, 0, Math.PI * 2); ctx.fill();
     ctx.strokeStyle = '#d9c17d'; ctx.lineWidth = 2; ctx.strokeRect(px + 2, py + 2, size - 4, size - 4);
