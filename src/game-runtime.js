@@ -117,7 +117,12 @@ export class GridExplorationRuntime {
   }
 
   onKeyDown(event) {
-    if (!this.running || this.mode !== 'OUTDOOR_EXPLORATION') return;
+    if (!this.running) return;
+    if (this.mode === 'BATTLE') {
+      if (this.callbacks.onBattleKey?.(event.key)) event.preventDefault();
+      return;
+    }
+    if (this.mode !== 'OUTDOOR_EXPLORATION') return;
     const moves = { arrowup: [0, -1], w: [0, -1], arrowdown: [0, 1], s: [0, 1], arrowleft: [-1, 0], a: [-1, 0], arrowright: [1, 0], d: [1, 0] };
     const move = moves[event.key.toLowerCase()];
     if (move) { event.preventDefault(); this.movePlayer(...move); }
