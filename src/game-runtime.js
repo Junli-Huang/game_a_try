@@ -160,7 +160,7 @@ export class GridExplorationRuntime {
     const effects = this.eventService.effectsFor(choice), messages = [];
     effects.forEach((effect) => {
       if (effect.type === 'health') { this.player.health = clamp(this.player.health + effect.value, 0, this.config.global.maxHealth); messages.push(`生命 ${effect.value >= 0 ? '+' : ''}${effect.value}`); }
-      if (effect.type === 'hunger') { this.player.hunger = clamp(this.player.hunger + effect.value, 0, this.config.global.maxHunger); messages.push(`饥饿 ${effect.value >= 0 ? '+' : ''}${effect.value}`); }
+      if (effect.type === 'hunger' && effect.value > 0) { this.player.hunger = clamp(this.player.hunger + effect.value, 0, this.config.global.maxHunger); messages.push(`饥饿 +${effect.value}`); }
       if (effect.type === 'madness') { this.changeMadness(effect.value); messages.push(`疯狂 ${effect.value >= 0 ? '+' : ''}${effect.value}`); }
       if (effect.type === 'safeFood') { this.save.safeFood += effect.value; messages.push(`获得储备粮 ×${effect.value}`); }
       if (effect.type === 'monsterMeat') { const amount = Math.min(effect.value, this.config.player.inventoryCapacity - this.player.loot.monsterMeat); this.player.loot.monsterMeat += amount; messages.push(`获得异变肉块 ×${amount}`); }
@@ -255,8 +255,8 @@ export class GridExplorationRuntime {
   }
 
   consumeHunger(type) {
-    const key = { move: 'hungerCostPerMove', battle: 'hungerCostPerBattleRound', harvest: 'hungerCostPerHarvestRound', wait: 'hungerCostPerWait' }[type];
-    this.player.hunger = clamp(this.player.hunger - (this.config.global[key] || 0), 0, this.config.global.maxHunger);
+    if (type !== 'move') return;
+    this.player.hunger = clamp(this.player.hunger - (this.config.global.hungerCostPerMove || 0), 0, this.config.global.maxHunger);
     if (this.player.hunger <= 0) this.player.health = clamp(this.player.health - this.config.global.starvationDamagePerAction, 0, this.config.global.maxHealth);
   }
 

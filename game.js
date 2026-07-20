@@ -45,8 +45,7 @@ const labels = {
   detectRange: '地图感知距离', disengageCooldownTurns: '脱战冷却回合', harvestTurns: '切割回合', playerActions: '玩家行动',
   initiatorActsFirst: '主动接敌方先手', baseEscapeChance: '基础逃跑概率', failedEscapeEnemyAttack: '逃跑失败立即受击',
   defenseDamageReduction: '防御减伤比例', allowFoodInBattle: '战斗中允许食物', victoryPlayerMovesIntoEnemyTile: '胜利后进入敌人格',
-  hungerCostPerMove: '移动饥饿消耗', hungerCostPerBattleRound: '战斗回合饥饿消耗', hungerCostPerHarvestRound: '切割回合饥饿消耗',
-  hungerCostPerWait: '等待回合饥饿消耗', starvationDamagePerAction: '饥饿伤害/行动', alertDuration: '警觉持续回合',
+  hungerCostPerMove: '移动饥饿消耗', starvationDamagePerAction: '饥饿伤害/移动', alertDuration: '警觉持续回合',
   attackIntentRange: '攻击意图距离', useSpeedOrder: '按速度决定先手', battleTransition: '启用战斗转场', battleResultDelay: '结果展示秒数',
   showEnemyAlert: '显示敌人发现提示', showAttackIntent: '显示攻击意图', highlightInteract: '高亮可交互操作',
   demoGoal: 'Demo 目标', requiredExtractions: '目标撤离次数', requiredMonsterMeat: '目标带回肉量', maxExpeditionFailures: '最大失败次数',
@@ -338,7 +337,7 @@ function renderBattleResult(result, finish) {
 function renderBattle(view, act) {
   const layer = document.querySelector('#battle-layer');
   if (!layer) return;
-  const names = { attack: '攻击', defend: '防御', eat: `吃怪物肉（${view.player.meat}）`, escape: `逃跑（${Math.round(config.battle.baseEscapeChance * 100)}%）` };
+  const names = { attack: '攻击', defend: '防御', item: '道具', escape: `逃跑（${Math.round(config.battle.baseEscapeChance * 100)}%）` };
   layer.hidden = false;
   layer.innerHTML = `<section class="battle-screen">
     <header><div><span class="eyebrow">BATTLE · ROUND ${view.round}</span><h2>${view.phase === 'player' ? '轮到你行动' : '敌人正在行动…'}</h2></div><span>速度决定先后手</span></header>
@@ -347,9 +346,40 @@ function renderBattle(view, act) {
       <div class="versus">VS</div>
       <article class="combatant enemy-combatant"><div class="combatant-art" style="--enemy:${view.enemy.color}">异</div><h3>${view.enemy.name}</h3><strong>${view.enemy.health} / ${view.enemy.maxHealth} HP</strong><i><b style="width:${view.enemy.health / view.enemy.maxHealth * 100}%"></b></i><small>攻击 ${view.enemy.attack} · 速度 ${view.enemy.speed}</small></article>
     </div>
-    <div class="battle-bottom"><div class="battle-log">${view.log.map((line) => `<p>${line}</p>`).join('')}</div><div class="battle-actions player-turn">${view.actions.map((action, index) => `<button data-battle-action="${action}" class="${index === 0 ? 'recommended-action' : ''}" ${action === 'eat' && view.player.meat <= 0 ? 'disabled' : ''}>${names[action]}</button>`).join('')}</div></div>
+    <div class="battle-bottom"><div class="battle-log">${view.log.map((line) => `<p>${line}</p>`).join('')}</div><div id="battle-action-menu" class="battle-actions player-turn"></div></div>
   </section>`;
-  layer.querySelectorAll('[data-battle-action]').forEach((button) => button.addEventListener('click', () => { audioService.playSfx(button.dataset.battleAction === 'attack' ? 'attack' : button.dataset.battleAction); act(button.dataset.battleAction); }));
+  const menu = layer.querySelector('#battle-action-menu');
+  const bindMenuKeyboard = () => {
+    const buttons = [...menu.querySelectorAll('button:not(:disabled)')];
+    buttons.forEach((button) => button.addEventListener('keydown', (event) => {
+      if (['ArrowUp', 'ArrowLeft', 'ArrowDown', 'ArrowRight'].includes(event.key)) {
+        event.preventDefault();
+        const direction = ['ArrowUp', 'ArrowLeft'].includes(event.key) ? -1 : 1;
+        buttons[(buttons.indexOf(button) + direction + buttons.length) % buttons.length]?.focus();
+      } else if (event.key === 'Enter') {
+        event.preventDefault();
+        button.click();
+      }
+    }));
+    buttons[0]?.focus();
+  };
+  const renderActions = () => {
+    menu.innerHTML = view.actions.map((action, index) => `<button data-battle-action="${action}" class="${index === 0 ? 'recommended-action' : ''}">${names[action]}</button>`).join('');
+    menu.querySelectorAll('[data-battle-action]').forEach((button) => button.addEventListener('click', () => {
+      const action = button.dataset.battleAction;
+      if (action === 'item') return renderItems();
+      audioService.playSfx(action === 'attack' ? 'attack' : action);
+      act(action);
+    }));
+    bindMenuKeyboard();
+  };
+  const renderItems = () => {
+    menu.innerHTML = `<button data-battle-item="monster_meat" ${view.player.meat <= 0 ? 'disabled' : ''}>异变肉块 × ${view.player.meat}</button><button data-battle-back>返回</button>`;
+    menu.querySelector('[data-battle-item]')?.addEventListener('click', () => { audioService.playSfx('eat'); act('eat'); });
+    menu.querySelector('[data-battle-back]')?.addEventListener('click', renderActions);
+    bindMenuKeyboard();
+  };
+  renderActions();
 }
 
 const categoryDescriptions = {
