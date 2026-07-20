@@ -7,6 +7,7 @@ const service = new ConfigService();
 test('default config passes validation', () => {
   const result = service.validateConfig(service.loadDefaultConfig());
   assert.equal(result.valid, true, result.errors.join('\n'));
+  assert.equal(service.loadDefaultConfig().player.hunger, 82);
 });
 
 test('invalid references and overlapping madness stages are rejected', () => {
