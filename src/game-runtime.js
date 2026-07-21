@@ -20,9 +20,11 @@ export class GridExplorationRuntime {
     this.canvas.width = this.viewWidth * this.tileSize;
     this.canvas.height = this.viewHeight * this.tileSize;
     this.running = false;
+    this.inputPaused = false;
     this.mode = 'OUTDOOR_EXPLORATION';
     this.turn = 0;
     this.message = '雾中没有声音。每一步都会让世界向前。';
+    this.expeditionStart = null;
     this.boundKeyDown = (event) => this.onKeyDown(event);
     this.boundClick = (event) => this.onCanvasClick(event);
   }
@@ -48,6 +50,12 @@ export class GridExplorationRuntime {
     this.seenSpawnerIds = new Set();
     this.eventService = new MapEventService(this.config, this.random);
     this.restoreExpedition();
+    this.expeditionStart = this.save.activeExpedition?.expeditionStart || {
+      madness: this.player.madness,
+      enemiesKilled: this.save.enemiesKilled || 0,
+      nestsDestroyed: this.save.nestsDestroyed || 0,
+      monsterMeatConsumed: this.save.totalMonsterMeatConsumed || 0
+    };
     this.running = true;
     addEventListener('keydown', this.boundKeyDown);
     this.canvas.addEventListener('click', this.boundClick);
@@ -141,11 +149,12 @@ export class GridExplorationRuntime {
       if (this.tileAt(spawner.x, spawner.y)?.visibility !== 'visible' || this.seenSpawnerIds.has(spawner.id)) continue;
       this.seenSpawnerIds.add(spawner.id);
       this.notify('nest-sighted', spawner, `你在雾中发现了${spawner.config.name}。它仍在蠕动。`);
+      this.callbacks.onMilestone?.('first_nest');
     }
   }
 
   onKeyDown(event) {
-    if (!this.running) return;
+    if (!this.running || this.inputPaused) return;
     if (this.mode === 'BATTLE') {
       if (this.callbacks.onBattleKey?.(event.key)) event.preventDefault();
       return;
@@ -167,7 +176,7 @@ export class GridExplorationRuntime {
   }
 
   movePlayer(dx, dy) {
-    if (!this.running || this.mode !== 'OUTDOOR_EXPLORATION') return false;
+    if (!this.running || this.inputPaused || this.mode !== 'OUTDOOR_EXPLORATION') return false;
     const target = { x: this.player.x + dx, y: this.player.y + dy };
     const tile = this.tileAt(target.x, target.y);
     if (!tile?.walkable) { this.setMessage('那里无法通行。'); return false; }
@@ -177,6 +186,8 @@ export class GridExplorationRuntime {
     const firstVisit = !this.visitedTiles.has(keyOf(target.x, target.y));
     this.visitedTiles.add(keyOf(target.x, target.y));
     this.advanceMapTurn('move');
+    this.callbacks.onMilestone?.('fog_of_war');
+    if (this.extractionAt(this.player.x, this.player.y)) this.callbacks.onMilestone?.('first_extraction');
     if (this.mode === 'OUTDOOR_EXPLORATION' && firstVisit) this.tryMapEvent();
     return true;
   }
@@ -198,7 +209,7 @@ export class GridExplorationRuntime {
       if (effect.type === 'hunger' && effect.value > 0) { this.player.hunger = clamp(this.player.hunger + effect.value, 0, this.config.global.maxHunger); messages.push(`饥饿 +${effect.value}`); }
       if (effect.type === 'madness') { this.changeMadness(effect.value); messages.push(`疯狂 ${effect.value >= 0 ? '+' : ''}${effect.value}`); }
       if (effect.type === 'safeFood') { this.save.safeFood += effect.value; messages.push(`获得储备粮 ×${effect.value}`); }
-      if (effect.type === 'monsterMeat') { const amount = Math.min(effect.value, this.config.player.inventoryCapacity - this.player.loot.monsterMeat); this.player.loot.monsterMeat += amount; messages.push(`获得异变肉块 ×${amount}`); }
+      if (effect.type === 'monsterMeat') { const amount = Math.min(effect.value, this.config.player.inventoryCapacity - this.player.loot.monsterMeat); this.player.loot.monsterMeat += amount; messages.push(`获得异变肉块 ×${amount}`); if (amount > 0) this.callbacks.onMilestone?.('monster_meat'); }
       if (effect.type === 'message') messages.push(effect.value);
     });
     if (event.oncePerSave && !(this.save.seenEventIds || []).includes(event.id)) this.save.seenEventIds.push(event.id);
@@ -246,10 +257,12 @@ export class GridExplorationRuntime {
     const corpse = this.corpseAt(this.player.x, this.player.y);
     if (corpse) {
       const full = this.player.loot.monsterMeat >= this.config.player.inventoryCapacity;
-      return { type: 'harvest', label: full ? '背包已满' : '切割尸体', enabled: !full, tone: 'danger' };
+      const turns = Math.max(1, corpse.config.harvestTurns);
+      return { type: 'harvest', label: full ? '背包已满' : `切割（${turns} 回合）`, enabled: !full, tone: 'danger' };
     }
     if (this.extractionAt(this.player.x, this.player.y)) {
-      return { type: 'extract', label: '开始撤离', enabled: true, tone: 'gold' };
+      const turns = Math.max(1, this.extractionAt(this.player.x, this.player.y)?.requiredTurns || 1);
+      return { type: 'extract', label: `撤离（${turns} 回合）`, enabled: true, tone: 'gold' };
     }
     return { type: null, label: '暂无交互', enabled: false, tone: 'muted' };
   }
@@ -265,6 +278,7 @@ export class GridExplorationRuntime {
     corpse.harvested = true;
     this.player.loot.monsterMeat += amount;
     this.save.corpsesHarvested = (this.save.corpsesHarvested || 0) + 1;
+    this.callbacks.onMilestone?.('monster_meat');
     this.setMessage(`切割完成，获得 ${amount} 份异变肉块。`);
     this.updateVision(); this.persistExpedition(); this.render();
   }
@@ -294,7 +308,7 @@ export class GridExplorationRuntime {
   persistExpedition() {
     if ((!this.running && this.turn > 0) || !this.visitedTiles || !this.tiles || !this.monsters || !this.corpses) return;
     this.save.activeExpedition = {
-      mapId: this.mapConfig.id, seed: this.seed, turn: this.turn,
+      mapId: this.mapConfig.id, seed: this.seed, turn: this.turn, expeditionStart: clone(this.expeditionStart),
       player: clone(this.player),
       monsters: this.monsters.map((item) => ({ ...item, configId: item.config.id, config: undefined })),
       corpses: this.corpses.map((item) => ({ ...item, configId: item.config.id, config: undefined })),
@@ -451,6 +465,7 @@ export class GridExplorationRuntime {
       || (type === 'attack-intent' ? this.config.ui.showAttackIntent : this.config.ui.showEnemyAlert);
     if (!enabled) return;
     this.setMessage(message);
+    if (['alert', 'chase', 'attack-intent'].includes(type)) this.callbacks.onMilestone?.('enemy_alert');
     this.callbacks.onNotice?.({ type, message, enemy: monster.config.name });
   }
 
@@ -465,6 +480,7 @@ export class GridExplorationRuntime {
   startBattle(monster, initiator) {
     if (this.mode !== 'OUTDOOR_EXPLORATION') return;
     this.mode = this.config.battle.battleTransition ? 'BATTLE_TRANSITION' : 'BATTLE';
+    this.callbacks.onMilestone?.('first_battle');
     const playerSpeed = this.config.player.speed || 0;
     const enemySpeed = monster.config.speed || 0;
     const enemyFirst = this.config.battle.useSpeedOrder
@@ -489,7 +505,7 @@ export class GridExplorationRuntime {
   }
 
   battleAction(action) {
-    if (this.mode !== 'BATTLE' || !this.battle || !this.battle.playerTurn) return;
+    if (this.inputPaused || this.mode !== 'BATTLE' || !this.battle || !this.battle.playerTurn) return;
     this.battle.playerTurn = false;
     if (action === 'attack') {
       const damage = Math.max(1, this.getAttackDamage() - (this.battle.monster.config.defense || 0));
@@ -547,11 +563,13 @@ export class GridExplorationRuntime {
     const monster = this.battle.monster;
     this.monsters = this.monsters.filter((item) => item !== monster);
     this.save.enemiesKilled = (this.save.enemiesKilled || 0) + 1;
+    if (monster.config.spawnConfig?.enabled) this.save.nestsDestroyed = (this.save.nestsDestroyed || 0) + 1;
     this.corpses.push({ id: `corpse-${monster.id}`, x: monster.x, y: monster.y, config: monster.config, harvested: false });
     if (this.config.battle.victoryPlayerMovesIntoEnemyTile) { this.player.x = monster.x; this.player.y = monster.y; }
     const finish = () => {
       this.mode = 'OUTDOOR_EXPLORATION'; this.battle = null;
       this.setMessage(monster.config.spawnConfig?.enabled ? '巢穴停止了蠕动。尸体可以切割。' : `${monster.config.name}倒下了。尸体就在脚下，可以切割。`);
+      this.callbacks.onMilestone?.('first_harvest');
       this.updateVision(); this.persistExpedition(); this.render();
     };
     if (this.callbacks.onBattleResult) this.callbacks.onBattleResult({ type: 'victory', title: `击败 ${monster.config.name}`, detail: '尸体已留下，可以进行切割。' }, finish);
@@ -559,7 +577,7 @@ export class GridExplorationRuntime {
   }
 
   loseBattle() {
-    const finish = () => { this.battle = null; this.failExpedition(); };
+    const finish = () => { this.battle = null; this.failExpedition('combat'); };
     if (this.callbacks.onBattleResult) this.callbacks.onBattleResult({ type: 'defeat', title: '外出失败', detail: '你倒在了雾中。' }, finish);
     else finish();
   }
@@ -585,6 +603,7 @@ export class GridExplorationRuntime {
   eatMonsterMeat() {
     const food = this.config.foods.find((item) => item.id === 'monster_meat');
     this.player.loot.monsterMeat -= 1;
+    this.save.totalMonsterMeatConsumed = (this.save.totalMonsterMeatConsumed || 0) + 1;
     this.player.hunger = clamp(this.player.hunger + food.hungerRestore, 0, this.config.global.maxHunger);
     this.changeMadness(food.madnessGain);
   }
@@ -630,25 +649,40 @@ export class GridExplorationRuntime {
   setMessage(message) { this.message = message; }
 
   succeedExpedition() {
+    const summary = this.getExpeditionSummary();
     this.save.monsterMeat += this.player.loot.monsterMeat;
     this.save.successfulExtractions = (this.save.successfulExtractions || 0) + 1;
     this.save.totalMonsterMeatReturned = (this.save.totalMonsterMeatReturned || 0) + this.player.loot.monsterMeat;
     this.save.madness = Math.round(this.player.madness);
     this.advanceFarm(); this.save.expeditions += 1;
-    this.save.lastResult = { success: true, meat: this.player.loot.monsterMeat };
+    this.save.lastResult = { success: true, meat: this.player.loot.monsterMeat, summary, viewed: false };
     this.save.activeExpedition = null;
     this.stop(); this.callbacks.onComplete?.(this.save, true);
   }
 
-  failExpedition() {
+  failExpedition(reason = this.player.hunger <= 0 ? 'starvation' : 'other') {
     if (!this.running) return;
     if (this.config.global.keepMadnessOnDeath) this.save.madness = Math.round(this.player.madness);
     this.advanceFarm(); this.save.expeditions += 1;
     this.save.expeditionFailures = (this.save.expeditionFailures || 0) + 1;
-    this.save.lastResult = { success: false, meat: this.config.global.loseLootOnDeath ? 0 : this.player.loot.monsterMeat };
+    const lostMeat = this.config.global.loseLootOnDeath ? this.player.loot.monsterMeat : 0;
+    this.save.lastResult = { success: false, meat: this.config.global.loseLootOnDeath ? 0 : this.player.loot.monsterMeat, lostMeat, reason, summary: this.getExpeditionSummary(), viewed: false };
     this.save.activeExpedition = null;
     if (!this.config.global.loseLootOnDeath) this.save.monsterMeat += this.player.loot.monsterMeat;
     this.stop(); this.callbacks.onComplete?.(this.save, false);
+  }
+
+  getExpeditionSummary() {
+    const start = this.expeditionStart || {};
+    return {
+      turns: this.turn,
+      exploredTiles: this.visitedTiles?.size || 0,
+      kills: Math.max(0, (this.save.enemiesKilled || 0) - (start.enemiesKilled || 0)),
+      nestsDestroyed: Math.max(0, (this.save.nestsDestroyed || 0) - (start.nestsDestroyed || 0)),
+      meatCollected: this.player.loot.monsterMeat + Math.max(0, (this.save.totalMonsterMeatConsumed || 0) - (start.monsterMeatConsumed || 0)),
+      meatConsumed: Math.max(0, (this.save.totalMonsterMeatConsumed || 0) - (start.monsterMeatConsumed || 0)),
+      madnessDelta: Math.round(this.player.madness - (start.madness || 0))
+    };
   }
 
   advanceFarm() {
