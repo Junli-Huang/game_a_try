@@ -4,6 +4,7 @@ import { GoalService } from './src/systems/goal-service.js';
 import { MadnessPresentationService } from './src/systems/madness-presentation.js';
 import { AudioService } from './src/systems/audio-service.js';
 import { trimMapToBounds } from './src/systems/map-generation.js';
+import { TutorialService } from './src/systems/tutorial-service.js';
 
 const app = document.querySelector('#app');
 const fileInput = document.querySelector('#config-file');
@@ -16,6 +17,8 @@ let activeCategory = 'global';
 let goalService = new GoalService(config);
 let madnessPresentation = new MadnessPresentationService(config);
 let audioService = new AudioService(config);
+let tutorialService = new TutorialService(save, persistSave);
+let tutorialQueue = [];
 let playtestState = null;
 let importTarget = 'config';
 let mapEditorTool = 'select';
@@ -93,7 +96,7 @@ function renderMain() {
           ${button('关于', 'about', 'ghost')}
           ${save.expeditions || save.introSeen ? button('重置存档', 'reset-save', 'ghost danger') : ''}
         </div>
-        <p class="version">V1 · 数据驱动搜打撤 Demo</p>
+        <p class="version">V1.3.1 · MVP Demo Polish</p>
       </div>
       <aside class="menu-note">
         <span>生存守则 01</span>
@@ -117,6 +120,7 @@ function madnessStage(value) {
 function renderShelter() {
   config = configService.loadActiveConfig();
   goalService = new GoalService(config); madnessPresentation = new MadnessPresentationService(config); audioService = new AudioService(config);
+  tutorialService = new TutorialService(save, persistSave);
   const crop = config.farming[0];
   const stage = madnessStage(save.madness);
   const farmText = !save.farm.planted ? '空置' : save.farm.cyclesLeft > 0 ? `生长中 · 还需 ${save.farm.cyclesLeft} 次外出` : '可以收获';
@@ -175,9 +179,24 @@ function renderShelter() {
     }
   });
   requestAnimationFrame(() => {
-    if (!save.introSeen) showGoalIntro();
+    if (tutorialService.shouldShow('demo_goal')) showTutorial('demo_goal');
+    else if (save.lastResult && save.lastResult.viewed === false) showExpeditionSummary();
     else showGoalResultIfNeeded();
   });
+}
+
+function showExpeditionSummary() {
+  const result = save.lastResult, summary = result.summary || {};
+  result.viewed = true; persistSave(save);
+  const signed = (value = 0) => `${value >= 0 ? '+' : ''}${value}`;
+  const reasonNames = { combat: '战斗中生命归零', starvation: '饥饿伤害导致生命归零', other: '其他运行时原因' };
+  const heading = result.success ? '本次探索结果' : '外出失败';
+  const outcome = result.success
+    ? `带回异变肉：${result.meat || 0}`
+    : `失败原因：${reasonNames[result.reason] || reasonNames.other}\n丢失异变肉：${result.lostMeat || 0}\n失败次数：${save.expeditionFailures} / ${config.demoGoal.maxExpeditionFailures}`;
+  showModal(heading, `${outcome}\n\n探索回合：${summary.turns || 0}\n探索格数：${summary.exploredTiles || 0}\n击杀敌人：${summary.kills || 0}\n破坏巢穴：${summary.nestsDestroyed || 0}\n获得异变肉：${summary.meatCollected || 0}\n本局食用异变肉：${summary.meatConsumed || 0}\n疯狂变化：${signed(summary.madnessDelta)}\n\nDemo 目标\n撤离次数：${save.successfulExtractions} / ${config.demoGoal.requiredExtractions}\n累计带回异变肉：${save.totalMonsterMeatReturned} / ${config.demoGoal.requiredMonsterMeat}`, [
+    { label: '返回庇护所', primary: true, action: () => { closeModal(); showGoalResultIfNeeded(); } }
+  ]);
 }
 
 function eatInShelter(itemId) {
@@ -200,13 +219,48 @@ function showGoalIntro() {
   showModal('庇护所的安全食物已经所剩无几', `你必须进入雾区狩猎，将异变生物的肉带回来。\n\n完成 ${goal.requiredExtractions} 次撤离，并带回 ${goal.requiredMonsterMeat} 块怪物肉。\n\n它们可以让你活下去。\n\n代价是，你会逐渐变得不像自己。`, [{ label: '准备外出', primary: true, action: () => { save.introSeen = true; persistSave(save); closeModal(); } }]);
 }
 
+const tutorialContent = {
+  demo_goal: ['生存目标', '完成 3 次撤离，并累计带回 12 块异变肉。\n\n外出失败达到上限，或庇护所食物耗尽，Demo 将会结束。异变肉能维持生存，但食用会提高疯狂。'],
+  outdoor_movement: ['进入雾区', '使用 WASD、方向键、点击相邻格或屏幕方向键移动。\n\n每次实际移动会消耗饥饿，并推进地图回合。'],
+  fog_of_war: ['战争迷雾', '明亮区域是当前视野，灰暗区域是探索过的记忆，黑色区域尚未探索。\n\n记忆中的敌人状态可能已经改变。'],
+  enemy_alert: ['敌人发现了你', '敌人会经历警觉、追踪和准备接敌等状态。\n\n观察图标与文字，决定绕行、战斗或撤退。'],
+  first_battle: ['回合制战斗', '速度决定战斗开始时的先后手。\n\n你可以攻击、防御、使用道具或尝试逃跑。'],
+  first_harvest: ['切割尸体', '站在尸体所在格，点击高亮按钮或按 E 切割。\n\n切割会推进地图回合，附近敌人仍可能行动。'],
+  monster_meat: ['异变肉', '异变肉可以恢复饥饿，让你继续探索。\n\n但食用会增加疯狂；疯狂也会提高攻击。'],
+  first_nest: ['腐化巢穴', '巢穴不会主动追击，但会定期产出怪物。\n\n尝试进入巢穴所在格，可以主动接敌并破坏它。'],
+  first_extraction: ['撤离', '撤离需要等待多个地图回合，期间敌人仍会行动。\n\n成功撤离后，本次获得的异变肉才会带回庇护所。']
+};
+
+function showTutorial(step) {
+  if (!tutorialService.shouldShow(step)) return;
+  if (document.querySelector('#global-modal')) {
+    if (!tutorialQueue.includes(step)) tutorialQueue.push(step);
+    return;
+  }
+  if (runtime?.running) runtime.inputPaused = true;
+  const [title, copy] = tutorialContent[step];
+  showModal(title, copy, [
+    { label: '知道了', primary: true, action: () => { tutorialService.complete(step); if (step === 'demo_goal') save.introSeen = true; closeModal(); resumeAfterTutorial(); showNextTutorial(); } },
+    { label: '跳过全部引导', action: () => { tutorialService.skipAll(); tutorialQueue = []; closeModal(); resumeAfterTutorial(); } }
+  ]);
+}
+
+function resumeAfterTutorial() {
+  if (runtime?.running) runtime.inputPaused = false;
+}
+
+function showNextTutorial() {
+  const next = tutorialQueue.shift();
+  if (next) setTimeout(() => showTutorial(next), 0);
+}
+
 function showGoalResultIfNeeded() {
   const status = goalService.status(save);
   if (!['victory', 'failure'].includes(status.state) || save.goalResultSeen === `${status.state}:${status.reason}`) return;
   save.goalResultSeen = `${status.state}:${status.reason}`; persistSave(save);
   if (status.state === 'victory') {
     const stage = madnessPresentation.stage(save.madness);
-    showModal('你暂时活了下来', `储藏室里重新堆起了食物。\n\n低语并没有消失。\n\n总外出 ${save.expeditions} 次 · 成功撤离 ${save.successfulExtractions} 次\n击杀 ${save.enemiesKilled} · 切割 ${save.corpsesHarvested}\n带回肉块 ${save.totalMonsterMeatReturned} · 最高疯狂 ${save.highestMadness}\n当前阶段：${stage.state || stage.name}`, [
+    showModal('你带回了足够的食物', `雾仍在庇护所外翻涌。\n至少今天，你们不会挨饿。\n\n总外出 ${save.expeditions} 次 · 成功撤离 ${save.successfulExtractions} 次 · 失败 ${save.expeditionFailures} 次\n击杀 ${save.enemiesKilled} · 破坏巢穴 ${save.nestsDestroyed || 0}\n带回肉块 ${save.totalMonsterMeatReturned} · 最高疯狂 ${save.highestMadness}\n当前阶段：${stage.state || stage.name}`, [
       { label: '继续游戏', primary: true, action: closeModal }, { label: '重新开始', action: resetGame }, { label: '返回主菜单', action: () => { closeModal(); renderMain(); } }
     ]);
   } else {
@@ -252,6 +306,7 @@ function startExpedition() {
     onMapEvent: renderMapEvent,
     onMapEventResult: renderMapEventResult,
     onMadnessChange: handleMadnessChange,
+    onMilestone: showTutorial,
     onSave: (nextSave) => { if (!playtestState) persistSave(nextSave); },
     onComplete: (nextSave, success) => {
       if (playtestState) return leaveMapPlaytest();
@@ -264,6 +319,7 @@ function startExpedition() {
     element.addEventListener('click', () => runtime.movePlayer(dx, dy));
   });
   runtime.start();
+  showTutorial('outdoor_movement');
   audioService.playBgm('outdoor');
   if (config.madnessPresentation.showWhispers && save.madness >= 30) setTimeout(() => showWhisper(madnessPresentation.whisper()), 1200);
 }
@@ -326,7 +382,7 @@ function renderNotice(notice) {
   const node = document.querySelector('#danger-notice');
   if (!node) return;
   node.hidden = false; node.className = `danger-notice ${notice.type}`;
-  node.innerHTML = `<strong>${notice.type === 'attack-intent' ? '⚠ 攻击意图' : notice.type === 'chase' ? '危险！' : '！被发现'}</strong><span>${notice.message}</span>`;
+  node.innerHTML = `<strong>${notice.type === 'nest-sighted' ? '◈ 巢穴' : notice.type === 'spawn' ? '◉ 产出' : notice.type === 'attack-intent' ? '⚠ 攻击意图' : notice.type === 'chase' ? '↓ 追踪' : '！警觉'}</strong><span>${notice.message}</span>`;
   clearTimeout(renderNotice.timer);
   audioService.playSfx(notice.type === 'attack-intent' ? 'intent' : notice.type === 'chase' ? 'chase' : 'alert');
   renderNotice.timer = setTimeout(() => { node.hidden = true; }, 1800);
@@ -431,13 +487,14 @@ function renderConfig() {
         <nav class="config-nav">${Object.keys(categoryDescriptions).map((key) => `<button class="${key === activeCategory ? 'active' : ''}" data-category="${key}"><span>${labels[key]}</span><small>${Array.isArray(configDraft[key]) ? configDraft[key].length : ''}</small></button>`).join('')}</nav>
         <section class="config-editor"><div class="config-editor-head"><div><h3>${labels[activeCategory]}</h3><p>${categoryDescriptions[activeCategory]}</p></div><span>保存后，下次开始游戏生效</span></div><div id="config-fields"></div></section>
       </div>
-      <footer class="config-footer"><div>${button('恢复默认', 'reset', 'danger ghost')}${button('导入 JSON', 'import')}${button('导出 JSON', 'export')}</div><span id="config-status">当前为${configService.loadSavedConfig() ? '已保存配置' : '默认配置'}</span></footer>
+      <footer class="config-footer"><div>${button('恢复默认', 'reset', 'danger ghost')}${button('重置游戏引导', 'reset-tutorial', 'ghost')}${button('导入 JSON', 'import')}${button('导出 JSON', 'export')}</div><span id="config-status">当前为${configService.loadSavedConfig() ? '已保存配置' : '默认配置'}</span></footer>
     </section>`;
   renderConfigFields();
   app.querySelectorAll('[data-category]').forEach((element) => element.addEventListener('click', () => { activeCategory = element.dataset.category; renderConfig(); }));
   bindActions(app, {
     menu: renderMain,
     validate: validateDraft,
+    'reset-tutorial': () => { tutorialService.reset(); toast('游戏引导已重置'); },
     save: () => { if (validateDraft()) { configService.saveConfig(configDraft); config = configService.loadActiveConfig(); setConfigStatus('配置已保存，将在下次开始游戏时生效', true); } },
     reset: () => { if (confirm('恢复内置默认配置？当前未保存的修改会丢失。')) { configDraft = configService.resetConfig(); clearMapEditorHistory(); renderConfig(); toast('已恢复默认配置'); } },
     export: exportDraft,
