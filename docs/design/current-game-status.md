@@ -6,8 +6,8 @@
 > 历史设计文档用于记录设计演进，不代表所有内容均已实现。
 
 - 当前版本：V1.3 Demo
-- 状态依据：`feat/v1.3-completion` 分支实际代码、自动测试与生产构建
-- 公开体验链接（本次未验证可用性）：[GitHub Pages](https://junli-huang.github.io/game_a_try/) / [chatgpt.site](https://tiny-signal-game.junli-h.chatgpt.site)
+- 状态依据：`main` 分支实际代码、自动测试与生产构建
+- 公开体验链接：[GitHub Pages](https://junli-huang.github.io/game_a_try/) / [chatgpt.site](https://tiny-signal-game.junli-h.chatgpt.site)
 - 更新规则：功能验收后，必须同步更新本文档；不能只更新历史设计文档。
 
 ## 1. 当前核心循环
@@ -122,7 +122,7 @@
 - 桌面与移动端响应式布局，移动端地图保持完整正方形并考虑安全区。
 - Web Audio 合成操作、警觉、战斗、切割、撤离与结果提示音。
 - 自动测试覆盖配置、迷雾记忆、战斗、敌人意图、道具、饥饿、目标、疯狂、事件、地图尺寸、Seed 随机布点和巢穴产出。V1.3 专项测试还覆盖伪随机状态续接、配置/外出快照迁移、地图对象重叠校验、巢穴首次发现与总产出上限、无合法格跳过，以及伪随机进度、巢穴进度和地图事件状态的精确恢复；尚未覆盖编辑器 DOM 交互、固定怪物距离规则、`requireWalkableTile` 开关或战斗/事件界面中刷新恢复。
-- 构建脚本会产出 GitHub Pages 所需的静态文件；README 保留 GitHub Pages 体验链接。本次状态核对未验证外部部署是否仍可访问。
+- 构建脚本会产出 GitHub Pages 所需的静态文件；GitHub Pages 与 chatgpt.site 的公开入口已完成访问核对。具体发布版本仍以各部署平台当次构建状态为准。
 
 ## 3. Partially Implemented
 
