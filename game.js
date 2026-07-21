@@ -17,6 +17,11 @@ let goalService = new GoalService(config);
 let madnessPresentation = new MadnessPresentationService(config);
 let audioService = new AudioService(config);
 let playtestState = null;
+let importTarget = 'config';
+let mapEditorTool = 'select';
+let mapEditorSelection = null;
+let mapAreaAnchor = null;
+const mapEditorHistory = { undo: [], redo: [] };
 addEventListener('pointerdown', () => audioService.unlock(), { once: true });
 
 const labels = {
@@ -55,6 +60,8 @@ const labels = {
   mapEvents: '地图事件规则', events: '地图事件内容', triggerChancePerNewTile: '新格触发概率', maxEventsPerExpedition: '单次事件上限', minStepsBetweenEvents: '事件最小间隔',
   audio: '音频', masterVolume: '主音量', bgmVolume: 'BGM 音量', sfxVolume: '音效音量', muted: '静音', enabled: '启用',
   extractionPoints: '撤离点列表', randomSpawnRules: '随机布点规则', random: '随机种子', useFixedSeed: '使用固定 Seed', seed: 'Seed',
+  enabled: '启用', minCount: '最少数量', maxCount: '最多数量', allowedArea: '允许区域', minDistanceFromPlayerSpawn: '距玩家最小距离',
+  minDistanceFromExtraction: '距撤离点最小距离', minDistanceBetweenSameType: '同类最小距离', minDistanceBetweenAnyMonster: '怪物最小距离', placementAttempts: '尝试次数',
   spawnConfig: '产出设置', monsterConfigId: '怪物配置 ID', intervalTurns: '产出间隔回合', initialDelayTurns: '首次产出延迟',
   maxAliveChildren: '存活子怪上限', maxTotalChildren: '总产出上限', spawnRadiusMin: '最小产出半径', spawnRadiusMax: '最大产出半径',
   spawnOnVisibleTile: '允许在视野内产出', requireWalkableTile: '要求可通行格', childHomeLinkedToSpawner: '子怪以巢穴为 Home'
@@ -432,9 +439,9 @@ function renderConfig() {
     menu: renderMain,
     validate: validateDraft,
     save: () => { if (validateDraft()) { configService.saveConfig(configDraft); config = configService.loadActiveConfig(); setConfigStatus('配置已保存，将在下次开始游戏时生效', true); } },
-    reset: () => { if (confirm('恢复内置默认配置？当前未保存的修改会丢失。')) { configDraft = configService.resetConfig(); renderConfig(); toast('已恢复默认配置'); } },
+    reset: () => { if (confirm('恢复内置默认配置？当前未保存的修改会丢失。')) { configDraft = configService.resetConfig(); clearMapEditorHistory(); renderConfig(); toast('已恢复默认配置'); } },
     export: exportDraft,
-    import: () => fileInput.click()
+    import: () => { importTarget = 'config'; fileInput.click(); }
   });
 }
 
@@ -447,27 +454,70 @@ function renderConfigFields() {
   }
   const value = configDraft[activeCategory];
   root.innerHTML = Array.isArray(value)
-    ? `<div class="array-editor">${value.map((item, index) => `<article class="config-card"><header><strong>${item.name || item.state || item.id || `项目 ${index + 1}`}</strong><span>#${index + 1}</span></header>${renderObjectFields(item, `${activeCategory}.${index}`)}</article>`).join('')}</div>`
+    ? `<div class="array-editor">${value.map((item, index) => `<article class="config-card"><header><strong>${item.name || item.state || item.id || `项目 ${index + 1}`}</strong>${activeCategory === 'monsters' ? `<span class="monster-card-actions"><button data-monster-action="clone" data-monster-index="${index}">复制</button><button class="danger ghost" data-monster-action="delete" data-monster-index="${index}">删除</button></span>` : `<span>#${index + 1}</span>`}</header>${renderObjectFields(item, `${activeCategory}.${index}`)}</article>`).join('')}</div>`
     : `<article class="config-card single">${renderObjectFields(value, activeCategory)}</article>`;
   if (activeCategory === 'maps') root.insertAdjacentHTML('afterbegin', renderMapPreview(configDraft.maps[0]));
-  if (activeCategory === 'monsters') root.insertAdjacentHTML('afterbegin', `<div class="editor-actions">${button('新增怪物', 'add-monster')}${button('复制最后一项', 'clone-monster', 'ghost')}${button('删除最后一项', 'delete-monster', 'danger ghost')}</div>`);
+  if (activeCategory === 'monsters') root.insertAdjacentHTML('afterbegin', `<div class="editor-actions">${button('新增怪物', 'add-monster')}${button('恢复默认怪物配置', 'reset-monsters', 'danger ghost')}</div>`);
   bindConfigInputs(root);
   if (activeCategory === 'maps') bindMapPreview();
-  if (activeCategory === 'monsters') bindActions(root, {
-    'add-monster': () => { const source = structuredClone(configDraft.monsters[0]); source.id = `monster_${Date.now().toString(36)}`; source.name = '新怪物'; delete source.spawnConfig; configDraft.monsters.push(source); renderConfigFields(); },
-    'clone-monster': () => { const source = structuredClone(configDraft.monsters.at(-1)); source.id = `${source.id}_copy_${Date.now().toString(36).slice(-4)}`; source.name += ' 副本'; configDraft.monsters.push(source); renderConfigFields(); },
-    'delete-monster': () => deleteLastMonster()
-  });
+  if (activeCategory === 'monsters') {
+    bindActions(root, {
+      'add-monster': () => { const source = structuredClone(configDraft.monsters[0]); source.id = uniqueMonsterId('monster'); source.name = '新怪物'; delete source.spawnConfig; configDraft.monsters.push(source); renderConfigFields(); },
+      'reset-monsters': resetDefaultMonsters
+    });
+    root.querySelectorAll('[data-monster-action]').forEach((element) => element.addEventListener('click', () => {
+      const index = Number(element.dataset.monsterIndex);
+      if (element.dataset.monsterAction === 'clone') cloneMonster(index);
+      else deleteMonster(index);
+    }));
+  }
 }
 
-function deleteLastMonster() {
-  const monster = configDraft.monsters.at(-1);
+function uniqueMonsterId(base) {
+  let id = `${base}_copy_${Date.now().toString(36).slice(-5)}`, suffix = 2;
+  while (configDraft.monsters.some((monster) => monster.id === id)) id = `${base}_copy_${suffix++}`;
+  return id;
+}
+
+function cloneMonster(index) {
+  const source = configDraft.monsters[index];
+  if (!source) return;
+  const clone = structuredClone(source);
+  clone.id = uniqueMonsterId(source.id);
+  clone.name = `${source.name} 副本`;
+  configDraft.monsters.splice(index + 1, 0, clone);
+  renderConfigFields();
+}
+
+function monsterReferences(id, monsters = configDraft.monsters) {
+  const references = [];
+  configDraft.maps.forEach((map) => {
+    if ((map.monsterSpawns || []).some((spawn) => spawn.monsterId === id)) references.push(`地图「${map.name}」的固定点`);
+    if ((map.randomSpawnRules || []).some((rule) => rule.monsterConfigId === id)) references.push(`地图「${map.name}」的随机区域`);
+  });
+  monsters.forEach((monster) => { if (monster.id !== id && monster.spawnConfig?.monsterConfigId === id) references.push(`怪物「${monster.name}」的产出设置`); });
+  return references;
+}
+
+function deleteMonster(index) {
+  const monster = configDraft.monsters[index];
   if (!monster || ['passive', 'wanderer', 'tracker', 'basic_nest'].includes(monster.id)) return toast('内置怪物不能删除', true);
-  const referenced = configDraft.maps.some((map) => map.monsterSpawns.some((spawn) => spawn.monsterId === monster.id)
-    || (map.randomSpawnRules || []).some((rule) => rule.monsterConfigId === monster.id))
-    || configDraft.monsters.some((item) => item.spawnConfig?.monsterConfigId === monster.id);
-  if (referenced) return toast('该怪物仍被地图、随机规则或巢穴引用', true);
-  configDraft.monsters.pop(); renderConfigFields();
+  const references = monsterReferences(monster.id);
+  if (references.length) return toast(`无法删除：仍被${references.slice(0, 2).join('、')}引用`, true);
+  configDraft.monsters.splice(index, 1); renderConfigFields();
+}
+
+function resetDefaultMonsters() {
+  const defaults = configService.loadDefaultConfig().monsters;
+  const defaultIds = new Set(defaults.map((monster) => monster.id));
+  const blocking = configDraft.monsters
+    .filter((monster) => !defaultIds.has(monster.id) && monsterReferences(monster.id, defaults).length)
+    .map((monster) => monster.name);
+  if (blocking.length) return toast(`请先移除对自定义怪物的引用：${blocking.slice(0, 3).join('、')}`, true);
+  if (!confirm('仅恢复内置默认怪物配置？未被引用的自定义怪物会被移除。')) return;
+  configDraft.monsters = structuredClone(defaults);
+  renderConfigFields();
+  toast('已恢复默认怪物配置');
 }
 
 function renderMapPreview(map) {
@@ -477,35 +527,78 @@ function renderMapPreview(map) {
 }
 
 function renderMapEditor(map) {
-  const obstacleSet = new Set((map.obstacles || []).map((item) => `${item.x},${item.y}`));
-  const spawnMap = new Map((map.monsterSpawns || []).map((item) => [`${item.x},${item.y}`, item.monsterId]));
-  const extracts = new Set((map.extractionPoints || [map.extractPoint]).map((item) => `${item.x},${item.y}`));
+  const obstacleMap = new Map((map.obstacles || []).map((item, index) => [`${item.x},${item.y}`, index]));
+  const obstacleSet = new Set(obstacleMap.keys());
+  const spawnMap = new Map((map.monsterSpawns || []).map((item, index) => [`${item.x},${item.y}`, { item, index }]));
+  const extracts = new Map((map.extractionPoints || [map.extractPoint]).map((item, index) => [`${item.x},${item.y}`, index]));
+  const toolOptions = [
+    ['select', '选择工具'], ['ground', '地面'], ['obstacle', '障碍'], ['spawn', '玩家出生点'], ['extract', '撤离点'],
+    ...configDraft.monsters.map((item) => [`monster:${item.id}`, `怪物：${item.name}`]), ['random-area', '矩形随机怪物区域'], ['erase', '删除']
+  ];
+  const areas = (map.randomSpawnRules || []).map((rule, index) => {
+    const area = rule.allowedArea || { x: 0, y: 0, width: map.width, height: map.height };
+    const selected = mapEditorSelection?.type === 'randomRule' && mapEditorSelection.index === index ? ' selected' : '';
+    return `<div class="random-area-overlay${selected}" style="left:${area.x * 24}px;top:${area.y * 24}px;width:${area.width * 24}px;height:${area.height * 24}px" title="${escapeAttribute(rule.id)}"><span>${escapeAttribute(rule.id)}</span></div>`;
+  }).join('');
+  const draftArea = mapAreaAnchor ? `<div class="random-area-overlay draft" style="left:${mapAreaAnchor.x * 24}px;top:${mapAreaAnchor.y * 24}px;width:24px;height:24px"><span>再点另一角</span></div>` : '';
   return `<article class="map-editor-card">
     <header class="map-editor-toolbar">
       <label>宽 <input id="map-width" type="number" min="10" max="50" value="${map.width}"></label>
       <label>高 <input id="map-height" type="number" min="10" max="50" value="${map.height}"></label>
-      <select id="map-brush"><option value="ground">地面</option><option value="obstacle">障碍</option><option value="spawn">玩家出生点</option><option value="extract">撤离点</option>${configDraft.monsters.map((item) => `<option value="monster:${item.id}">怪物：${item.name}</option>`).join('')}<option value="erase">删除</option></select>
-      ${button('应用尺寸', 'resize-map')}${button('清空对象', 'clear-map', 'ghost')}${button('试玩当前地图', 'playtest-map', 'primary')}
+      <select id="map-brush" aria-label="地图工具">${toolOptions.map(([value, label]) => `<option value="${value}" ${mapEditorTool === value ? 'selected' : ''}>${label}</option>`).join('')}</select>
+      ${button('应用尺寸', 'resize-map')}<button data-action="undo-map" ${mapEditorHistory.undo.length ? '' : 'disabled'}>撤销</button><button data-action="redo-map" ${mapEditorHistory.redo.length ? '' : 'disabled'}>重做</button>${button('清空对象', 'clear-map', 'ghost')}${button('试玩当前地图', 'playtest-map', 'primary')}
     </header>
     <div class="seed-toolbar"><label><input id="fixed-seed" type="checkbox" ${map.random?.useFixedSeed ? 'checked' : ''}> 固定 Seed</label><input id="map-seed" value="${map.random?.seed || ''}">${button('生成 Seed', 'generate-seed')}${button('复制 Seed', 'copy-seed', 'ghost')}</div>
-    <p class="editor-help">点击或按住拖动绘制。视图可横向、纵向滚动；巢穴与普通怪物使用同一放置工具。</p>
-    <div class="map-editor-viewport"><div class="map-preview-grid map-authoring-grid" style="--map-columns:${map.width}">${Array.from({ length: map.width * map.height }, (_, index) => { const x = index % map.width, y = Math.floor(index / map.width), key = `${x},${y}`; let type = obstacleSet.has(key) ? 'obstacle' : ''; if (map.playerSpawn.x === x && map.playerSpawn.y === y) type = 'spawn'; if (extracts.has(key)) type = 'extract'; if (spawnMap.has(key)) type = `monster ${spawnMap.get(key)}`; return `<button class="${type}" data-map-x="${x}" data-map-y="${y}" title="(${x},${y})"></button>`; }).join('')}</div></div>
+    <div class="map-file-toolbar">${button('导入单张地图 JSON', 'import-map')}${button('导出单张地图 JSON', 'export-map')}${button('仅恢复默认地图', 'reset-map', 'danger ghost')}</div>
+    <p class="editor-help">选择工具用于点选对象并在右侧编辑属性；矩形随机区域依次点选两个角。地面、障碍和删除支持拖动绘制。</p>
+    <div class="map-editor-workspace">
+      <div class="map-editor-viewport"><div class="map-editor-canvas" style="width:${map.width * 24}px;height:${map.height * 24}px"><div class="map-preview-grid map-authoring-grid" style="--map-columns:${map.width}">${Array.from({ length: map.width * map.height }, (_, index) => { const x = index % map.width, y = Math.floor(index / map.width), key = `${x},${y}`; let type = obstacleSet.has(key) ? 'obstacle' : ''; let selectionType = obstacleSet.has(key) ? 'obstacle' : ''; let selectionIndex = obstacleMap.get(key); if (map.playerSpawn.x === x && map.playerSpawn.y === y) { type = 'spawn'; selectionType = 'player'; selectionIndex = 0; } if (extracts.has(key)) { type = 'extract'; selectionType = 'extract'; selectionIndex = extracts.get(key); } if (spawnMap.has(key)) { const spawn = spawnMap.get(key); type = `monster ${spawn.item.monsterId}`; selectionType = 'monster'; selectionIndex = spawn.index; } const selected = mapEditorSelection?.type === selectionType && mapEditorSelection.index === selectionIndex ? ' selected' : ''; return `<button class="${type}${selected}" data-map-x="${x}" data-map-y="${y}" title="(${x},${y})"></button>`; }).join('')}</div>${areas}${draftArea}</div></div>
+      ${renderMapSelectionPanel(map)}
+    </div>
   </article>`;
 }
 
+function renderMapSelectionPanel(map) {
+  const selection = mapEditorSelection;
+  if (!selection) return `<aside class="map-selection-panel"><h4>所选对象</h4><p>选择工具后点击地图对象或随机区域。</p></aside>`;
+  let item, title, fields = '';
+  if (selection.type === 'player') { item = map.playerSpawn; title = '玩家出生点'; fields = positionEditor(item); }
+  else if (selection.type === 'extract') { item = (map.extractionPoints || [map.extractPoint])[selection.index]; title = '撤离点'; fields = `${positionEditor(item)}${numberEditor('requiredTurns', item?.requiredTurns, 1)}`; }
+  else if (selection.type === 'monster') {
+    item = map.monsterSpawns?.[selection.index]; title = '固定怪物';
+    fields = `${positionEditor(item)}<label>怪物<select data-selected-path="monsterId">${configDraft.monsters.map((monster) => `<option value="${monster.id}" ${monster.id === item?.monsterId ? 'selected' : ''}>${monster.name}</option>`).join('')}</select></label>${numberEditor('count', item?.count, 1)}`;
+  } else if (selection.type === 'obstacle') { item = map.obstacles?.[selection.index]; title = '障碍'; fields = positionEditor(item); }
+  else if (selection.type === 'randomRule') {
+    item = map.randomSpawnRules?.[selection.index]; title = '随机怪物区域';
+    if (item) fields = `<label class="wide">ID<input data-selected-path="id" value="${escapeAttribute(item.id)}"></label><label class="toggle"><span>启用</span><input type="checkbox" data-selected-path="enabled" ${item.enabled ? 'checked' : ''}><i></i></label><label>怪物<select data-selected-path="monsterConfigId">${configDraft.monsters.map((monster) => `<option value="${monster.id}" ${monster.id === item.monsterConfigId ? 'selected' : ''}>${monster.name}</option>`).join('')}</select></label>${numberEditor('minCount', item.minCount, 0)}${numberEditor('maxCount', item.maxCount, 0)}${numberEditor('allowedArea.x', item.allowedArea?.x, 0)}${numberEditor('allowedArea.y', item.allowedArea?.y, 0)}${numberEditor('allowedArea.width', item.allowedArea?.width, 1)}${numberEditor('allowedArea.height', item.allowedArea?.height, 1)}${numberEditor('minDistanceFromPlayerSpawn', item.minDistanceFromPlayerSpawn, 0)}${numberEditor('minDistanceFromExtraction', item.minDistanceFromExtraction, 0)}${numberEditor('minDistanceBetweenSameType', item.minDistanceBetweenSameType, 0)}${numberEditor('minDistanceBetweenAnyMonster', item.minDistanceBetweenAnyMonster, 0)}${numberEditor('placementAttempts', item.placementAttempts, 1)}`;
+  }
+  if (!item) { mapEditorSelection = null; return renderMapSelectionPanel(map); }
+  const canDelete = selection.type !== 'player' && !(selection.type === 'extract' && (map.extractionPoints || []).length <= 1);
+  return `<aside class="map-selection-panel"><h4>${title}</h4><div class="selection-fields">${fields}</div>${canDelete ? button('删除所选对象', 'delete-selected', 'danger ghost') : `<small>${selection.type === 'player' ? '玩家出生点只能移动，不能删除。' : '地图至少需要一个撤离点。'}</small>`}</aside>`;
+}
+
+function escapeAttribute(value) { return String(value ?? '').replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;'); }
+function positionEditor(item) { return `${numberEditor('x', item?.x, 0)}${numberEditor('y', item?.y, 0)}`; }
+function numberEditor(path, value, min) { return `<label>${labels[path] || labels[path.split('.').at(-1)] || path}<input type="number" data-selected-path="${path}" value="${Number(value ?? 0)}" min="${min}"></label>`; }
+
 function bindMapPreview() {
   const currentMap = configDraft.maps[0];
+  const editor = document.querySelector('.map-editor-card');
+  if (!editor) return;
   let painting = false;
   const paint = (cell) => {
-    const map = configDraft.maps[0], x = Number(cell.dataset.mapX), y = Number(cell.dataset.mapY), brush = document.querySelector('#map-brush').value;
+    const map = configDraft.maps[0], x = Number(cell.dataset.mapX), y = Number(cell.dataset.mapY), brush = mapEditorTool;
     const onPlayerSpawn = map.playerSpawn.x === x && map.playerSpawn.y === y;
-    const onExtraction = (map.extractionPoints || [map.extractPoint]).some((item) => item.x === x && item.y === y);
-    if (onPlayerSpawn && brush !== 'spawn') return toast('玩家出生点不能与其他对象重叠', true);
-    if (onExtraction && brush !== 'extract') return toast('撤离点不能与其他对象重叠', true);
+    const extracts = map.extractionPoints || [map.extractPoint];
+    const onExtraction = extracts.some((item) => item.x === x && item.y === y);
+    if (onPlayerSpawn && !['spawn', 'select'].includes(brush)) return toast('玩家出生点只能通过出生点工具移动', true);
+    if (onExtraction && !['extract', 'select', 'ground', 'erase'].includes(brush)) return toast('撤离点不能与其他对象重叠', true);
+    if (onExtraction && brush === 'extract') return;
     const clear = () => {
       map.obstacles = map.obstacles.filter((item) => item.x !== x || item.y !== y);
       map.monsterSpawns = map.monsterSpawns.filter((item) => item.x !== x || item.y !== y);
-      map.extractionPoints = (map.extractionPoints || [map.extractPoint]).filter((item) => item.x !== x || item.y !== y);
+      if (!onExtraction || extracts.length > 1) map.extractionPoints = extracts.filter((item) => item.x !== x || item.y !== y);
+      else if (['ground', 'erase'].includes(brush)) toast('地图至少需要一个撤离点', true);
     };
     clear();
     if (brush === 'obstacle') map.obstacles.push({ x, y });
@@ -516,21 +609,158 @@ function bindMapPreview() {
     refreshMapCellClasses(map);
   };
   document.querySelectorAll('[data-map-x]').forEach((cell) => {
-    cell.addEventListener('pointerdown', (event) => { event.preventDefault(); painting = true; paint(cell); });
-    cell.addEventListener('pointerenter', () => { if (painting && ['ground', 'obstacle', 'erase'].includes(document.querySelector('#map-brush')?.value)) paint(cell); });
+    cell.addEventListener('pointerdown', (event) => {
+      event.preventDefault();
+      const x = Number(cell.dataset.mapX), y = Number(cell.dataset.mapY);
+      if (mapEditorTool === 'select') { selectMapObjectAt(x, y); renderConfigFields(); return; }
+      if (mapEditorTool === 'random-area') { handleAreaCorner(x, y); return; }
+      recordMapEditorChange();
+      painting = true;
+      paint(cell);
+      addEventListener('pointerup', () => { painting = false; renderConfigFields(); }, { once: true });
+    });
+    cell.addEventListener('pointerenter', () => { if (painting && ['ground', 'obstacle', 'erase'].includes(mapEditorTool)) paint(cell); });
   });
-  addEventListener('pointerup', () => { painting = false; }, { once: true });
-  const editor = document.querySelector('.map-editor-card');
-  if (!editor) return;
   bindActions(editor, {
-    'resize-map': () => { const map = configDraft.maps[0]; map.width = Number(document.querySelector('#map-width').value); map.height = Number(document.querySelector('#map-height').value); trimMapToBounds(map); renderConfigFields(); },
-    'clear-map': () => { const map = configDraft.maps[0]; map.obstacles = []; map.monsterSpawns = []; renderConfigFields(); },
-    'generate-seed': () => { configDraft.maps[0].random.seed = globalThis.crypto?.randomUUID?.() || Date.now().toString(36); renderConfigFields(); },
+    'resize-map': () => { const map = configDraft.maps[0]; recordMapEditorChange(); map.width = Math.max(10, Math.min(50, Math.round(Number(document.querySelector('#map-width').value)))); map.height = Math.max(10, Math.min(50, Math.round(Number(document.querySelector('#map-height').value)))); trimMapToBounds(map); trimRandomAreas(map); mapEditorSelection = null; mapAreaAnchor = null; renderConfigFields(); },
+    'undo-map': undoMapEditorChange,
+    'redo-map': redoMapEditorChange,
+    'clear-map': () => { const map = configDraft.maps[0]; recordMapEditorChange(); map.obstacles = []; map.monsterSpawns = []; map.randomSpawnRules = []; mapEditorSelection = null; mapAreaAnchor = null; renderConfigFields(); },
+    'generate-seed': () => { recordMapEditorChange(); configDraft.maps[0].random.seed = globalThis.crypto?.randomUUID?.() || Date.now().toString(36); renderConfigFields(); },
     'copy-seed': async () => { await navigator.clipboard?.writeText(configDraft.maps[0].random.seed); toast('Seed 已复制'); },
-    'playtest-map': startMapPlaytest
+    'playtest-map': startMapPlaytest,
+    'import-map': () => { importTarget = 'map'; fileInput.click(); },
+    'export-map': exportCurrentMap,
+    'reset-map': resetDefaultMap,
+    'delete-selected': deleteSelectedMapObject
   });
-  document.querySelector('#fixed-seed')?.addEventListener('change', (event) => { currentMap.random.useFixedSeed = event.target.checked; });
-  document.querySelector('#map-seed')?.addEventListener('change', (event) => { currentMap.random.seed = event.target.value; });
+  document.querySelector('#map-brush')?.addEventListener('change', (event) => { mapEditorTool = event.target.value; mapAreaAnchor = null; if (mapEditorTool !== 'select') mapEditorSelection = null; renderConfigFields(); });
+  document.querySelector('#fixed-seed')?.addEventListener('change', (event) => { recordMapEditorChange(); currentMap.random.useFixedSeed = event.target.checked; renderConfigFields(); });
+  document.querySelector('#map-seed')?.addEventListener('change', (event) => { recordMapEditorChange(); currentMap.random.seed = event.target.value; renderConfigFields(); });
+  editor.querySelectorAll('[data-selected-path]').forEach((input) => input.addEventListener('change', () => updateSelectedMapObject(input)));
+}
+
+function recordMapEditorChange() {
+  mapEditorHistory.undo.push(structuredClone(configDraft.maps[0]));
+  if (mapEditorHistory.undo.length > 50) mapEditorHistory.undo.shift();
+  mapEditorHistory.redo = [];
+}
+
+function clearMapEditorHistory() {
+  mapEditorHistory.undo = []; mapEditorHistory.redo = [];
+  mapEditorSelection = null; mapAreaAnchor = null;
+}
+
+function undoMapEditorChange() {
+  const previous = mapEditorHistory.undo.pop();
+  if (!previous) return;
+  mapEditorHistory.redo.push(structuredClone(configDraft.maps[0]));
+  configDraft.maps[0] = previous;
+  mapEditorSelection = null; mapAreaAnchor = null; renderConfigFields();
+}
+
+function redoMapEditorChange() {
+  const next = mapEditorHistory.redo.pop();
+  if (!next) return;
+  mapEditorHistory.undo.push(structuredClone(configDraft.maps[0]));
+  configDraft.maps[0] = next;
+  mapEditorSelection = null; mapAreaAnchor = null; renderConfigFields();
+}
+
+function selectMapObjectAt(x, y) {
+  const map = configDraft.maps[0];
+  const monsterIndex = map.monsterSpawns.findIndex((item) => item.x === x && item.y === y);
+  const extractIndex = (map.extractionPoints || [map.extractPoint]).findIndex((item) => item.x === x && item.y === y);
+  const obstacleIndex = map.obstacles.findIndex((item) => item.x === x && item.y === y);
+  let areaIndex = -1;
+  for (let index = map.randomSpawnRules.length - 1; index >= 0; index -= 1) {
+    const area = map.randomSpawnRules[index].allowedArea;
+    if (area && x >= area.x && y >= area.y && x < area.x + area.width && y < area.y + area.height) { areaIndex = index; break; }
+  }
+  if (monsterIndex >= 0) mapEditorSelection = { type: 'monster', index: monsterIndex };
+  else if (extractIndex >= 0) mapEditorSelection = { type: 'extract', index: extractIndex };
+  else if (map.playerSpawn.x === x && map.playerSpawn.y === y) mapEditorSelection = { type: 'player', index: 0 };
+  else if (obstacleIndex >= 0) mapEditorSelection = { type: 'obstacle', index: obstacleIndex };
+  else if (areaIndex >= 0) mapEditorSelection = { type: 'randomRule', index: areaIndex };
+  else mapEditorSelection = null;
+}
+
+function handleAreaCorner(x, y) {
+  if (!mapAreaAnchor) { mapAreaAnchor = { x, y }; renderConfigFields(); return; }
+  const x1 = Math.min(mapAreaAnchor.x, x), y1 = Math.min(mapAreaAnchor.y, y);
+  const rule = {
+    id: `random-area-${Date.now().toString(36).slice(-5)}`, enabled: true, monsterConfigId: configDraft.monsters[0].id,
+    minCount: 1, maxCount: 1, allowedArea: { x: x1, y: y1, width: Math.abs(x - mapAreaAnchor.x) + 1, height: Math.abs(y - mapAreaAnchor.y) + 1 }, excludedAreas: [],
+    minDistanceFromPlayerSpawn: 0, minDistanceFromExtraction: 0, minDistanceBetweenSameType: 1, minDistanceBetweenAnyMonster: 1, placementAttempts: 120
+  };
+  recordMapEditorChange();
+  configDraft.maps[0].randomSpawnRules.push(rule);
+  mapEditorSelection = { type: 'randomRule', index: configDraft.maps[0].randomSpawnRules.length - 1 };
+  mapAreaAnchor = null; mapEditorTool = 'select'; renderConfigFields();
+}
+
+function selectedMapObject() {
+  const map = configDraft.maps[0], selection = mapEditorSelection;
+  if (!selection) return null;
+  if (selection.type === 'player') return map.playerSpawn;
+  if (selection.type === 'extract') return (map.extractionPoints || [map.extractPoint])[selection.index];
+  if (selection.type === 'monster') return map.monsterSpawns[selection.index];
+  if (selection.type === 'obstacle') return map.obstacles[selection.index];
+  if (selection.type === 'randomRule') return map.randomSpawnRules[selection.index];
+  return null;
+}
+
+function updateSelectedMapObject(input) {
+  const target = selectedMapObject();
+  if (!target) return;
+  recordMapEditorChange();
+  const parts = input.dataset.selectedPath.split('.');
+  let owner = target;
+  for (let index = 0; index < parts.length - 1; index += 1) owner = owner[parts[index]] ||= {};
+  const key = parts.at(-1);
+  owner[key] = input.type === 'checkbox' ? input.checked : input.type === 'number' ? Number(input.value) : input.value;
+  const map = configDraft.maps[0];
+  if ('x' in target && 'y' in target) { target.x = Math.max(0, Math.min(map.width - 1, Math.round(target.x))); target.y = Math.max(0, Math.min(map.height - 1, Math.round(target.y))); }
+  if ('count' in target) target.count = Math.max(1, Math.round(target.count));
+  if ('requiredTurns' in target) target.requiredTurns = Math.max(1, Math.round(target.requiredTurns));
+  trimRandomAreas(map);
+  map.extractPoint = (map.extractionPoints || [map.extractPoint])[0];
+  renderConfigFields();
+}
+
+function trimRandomAreas(map) {
+  (map.randomSpawnRules || []).forEach((rule) => {
+    if (!rule.allowedArea) return;
+    rule.allowedArea.x = Math.max(0, Math.min(map.width - 1, Math.round(rule.allowedArea.x)));
+    rule.allowedArea.y = Math.max(0, Math.min(map.height - 1, Math.round(rule.allowedArea.y)));
+    rule.allowedArea.width = Math.max(1, Math.min(map.width - rule.allowedArea.x, Math.round(rule.allowedArea.width)));
+    rule.allowedArea.height = Math.max(1, Math.min(map.height - rule.allowedArea.y, Math.round(rule.allowedArea.height)));
+  });
+}
+
+function deleteSelectedMapObject() {
+  const map = configDraft.maps[0], selection = mapEditorSelection;
+  if (!selection || selection.type === 'player') return;
+  if (selection.type === 'extract' && (map.extractionPoints || []).length <= 1) return toast('地图至少需要一个撤离点', true);
+  recordMapEditorChange();
+  if (selection.type === 'extract') map.extractionPoints.splice(selection.index, 1);
+  else if (selection.type === 'monster') map.monsterSpawns.splice(selection.index, 1);
+  else if (selection.type === 'obstacle') map.obstacles.splice(selection.index, 1);
+  else if (selection.type === 'randomRule') map.randomSpawnRules.splice(selection.index, 1);
+  map.extractPoint = map.extractionPoints[0]; mapEditorSelection = null; renderConfigFields();
+}
+
+function exportCurrentMap() {
+  const map = configDraft.maps[0];
+  const blob = new Blob([JSON.stringify(map, null, 2)], { type: 'application/json' });
+  const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = `${map.id || 'map'}.json`; link.click(); URL.revokeObjectURL(link.href);
+}
+
+function resetDefaultMap() {
+  if (!confirm('仅恢复第一张内置默认地图？其他配置不会改变。')) return;
+  recordMapEditorChange();
+  configDraft.maps[0] = structuredClone(configService.loadDefaultConfig().maps[0]);
+  mapEditorSelection = null; mapAreaAnchor = null; renderConfigFields(); toast('已恢复默认地图');
 }
 
 function refreshMapCellClasses(map) {
@@ -610,9 +840,30 @@ function exportDraft() {
 }
 
 fileInput.addEventListener('change', async () => {
-  try { configDraft = configService.importConfig(await fileInput.files[0].text()); renderConfig(); toast('配置已导入，请检查后保存'); }
+  try {
+    const json = await fileInput.files[0].text();
+    if (importTarget === 'map') {
+      const parsed = JSON.parse(json);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('单张地图 JSON 必须是对象');
+      const defaultMap = configService.loadDefaultConfig().maps[0];
+      const importedMap = {
+        ...structuredClone(defaultMap), ...parsed,
+        fogOfWar: { ...defaultMap.fogOfWar, ...(parsed.fogOfWar || {}) },
+        random: { ...defaultMap.random, ...(parsed.random || {}) },
+        extractionPoints: parsed.extractionPoints || (parsed.extractPoint ? [parsed.extractPoint] : structuredClone(defaultMap.extractionPoints)),
+        randomSpawnRules: parsed.randomSpawnRules || []
+      };
+      trimRandomAreas(importedMap);
+      const candidate = structuredClone(configDraft); candidate.maps[0] = importedMap;
+      const result = configService.validateConfig(candidate);
+      if (!result.valid) throw new Error(result.errors.slice(0, 5).join('；'));
+      recordMapEditorChange(); configDraft.maps[0] = importedMap; mapEditorSelection = null; mapAreaAnchor = null; renderConfigFields(); toast('单张地图已导入，请检查后保存');
+    } else {
+      configDraft = configService.importConfig(json); clearMapEditorHistory(); renderConfig(); toast('配置已导入，请检查后保存');
+    }
+  }
   catch (error) { toast(`导入失败：${error.message}`, true); }
-  fileInput.value = '';
+  fileInput.value = ''; importTarget = 'config';
 });
 
 function toast(message, error = false) {

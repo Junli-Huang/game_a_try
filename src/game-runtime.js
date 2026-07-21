@@ -29,10 +29,13 @@ export class GridExplorationRuntime {
 
   start() {
     this.tiles = this.createTiles();
-    this.seed = this.save.activeExpedition?.mapId === this.mapConfig.id
-      ? this.save.activeExpedition.seed
+    const snapshot = this.save.activeExpedition?.mapId === this.mapConfig.id
+      ? this.save.activeExpedition
+      : null;
+    this.seed = snapshot?.seed != null
+      ? snapshot.seed
       : createExpeditionSeed(this.mapConfig);
-    this.random = createSeededRandom(`${this.seed}:runtime`);
+    this.random = createSeededRandom(`${this.seed}:runtime`, snapshot?.randomState);
     this.player = {
       x: this.mapConfig.playerSpawn.x, y: this.mapConfig.playerSpawn.y,
       health: this.config.player.health, hunger: this.config.player.hunger,
@@ -42,7 +45,8 @@ export class GridExplorationRuntime {
     this.corpses = [];
     this.battle = null;
     this.visitedTiles = new Set([keyOf(this.player.x, this.player.y)]);
-    this.eventService = new MapEventService(this.config);
+    this.seenSpawnerIds = new Set();
+    this.eventService = new MapEventService(this.config, this.random);
     this.restoreExpedition();
     this.running = true;
     addEventListener('keydown', this.boundKeyDown);
@@ -79,6 +83,7 @@ export class GridExplorationRuntime {
       if (!config) return;
       for (let index = 0; index < spawn.count; index += 1) {
         const position = this.findFreeSpawn(spawn.x, spawn.y, index, monsters);
+        if (!position) continue;
         const monster = {
           id: `${config.id}-${monsters.length}`, config, x: position.x, y: position.y,
           homeX: position.x, homeY: position.y, health: config.health,
@@ -97,9 +102,11 @@ export class GridExplorationRuntime {
     for (let cursor = index; cursor < offsets.length + index; cursor += 1) {
       const offset = offsets[cursor % offsets.length];
       const candidate = { x: clamp(x + offset[0], 0, this.mapConfig.width - 1), y: clamp(y + offset[1], 0, this.mapConfig.height - 1) };
-      if (this.tileAt(candidate.x, candidate.y)?.walkable && !existing.some((item) => item.x === candidate.x && item.y === candidate.y)) return candidate;
+      const reserved = (candidate.x === this.mapConfig.playerSpawn.x && candidate.y === this.mapConfig.playerSpawn.y)
+        || Boolean(this.extractionAt(candidate.x, candidate.y));
+      if (this.tileAt(candidate.x, candidate.y)?.walkable && !reserved && !existing.some((item) => item.x === candidate.x && item.y === candidate.y)) return candidate;
     }
-    return { x, y };
+    return null;
   }
 
   tileAt(x, y) { return this.tiles?.[y * this.mapConfig.width + x]; }
@@ -120,6 +127,7 @@ export class GridExplorationRuntime {
 
   updateVision() {
     const fog = this.mapConfig.fogOfWar;
+    this.seenSpawnerIds ??= new Set();
     this.tiles.forEach((tile) => {
       if (tile.visibility === 'visible') tile.visibility = 'explored';
       const dx = Math.abs(tile.x - this.player.x), dy = Math.abs(tile.y - this.player.y);
@@ -129,6 +137,11 @@ export class GridExplorationRuntime {
         tile.rememberedContent = clone(this.contentAt(tile.x, tile.y));
       }
     });
+    for (const spawner of this.monsters.filter((monster) => monster.config.spawnConfig?.enabled)) {
+      if (this.tileAt(spawner.x, spawner.y)?.visibility !== 'visible' || this.seenSpawnerIds.has(spawner.id)) continue;
+      this.seenSpawnerIds.add(spawner.id);
+      this.notify('nest-sighted', spawner, `你在雾中发现了${spawner.config.name}。它仍在蠕动。`);
+    }
   }
 
   onKeyDown(event) {
@@ -173,6 +186,7 @@ export class GridExplorationRuntime {
     const event = this.eventService.tryTrigger({ firstVisit: true, step: this.turn, madness: this.player.madness, hunger: this.player.hunger, seenEventIds: this.save.seenEventIds || [] });
     if (!event) return;
     this.mode = 'MAP_EVENT';
+    this.persistExpedition();
     this.callbacks.onMapEvent?.(event, (choice) => this.resolveMapEvent(event, choice));
   }
 
@@ -191,7 +205,7 @@ export class GridExplorationRuntime {
     this.mode = 'OUTDOOR_EXPLORATION';
     const turns = effects.filter((effect) => effect.type === 'advanceTurn').reduce((sum, effect) => sum + effect.value, 0);
     for (let index = 0; index < turns && this.mode === 'OUTDOOR_EXPLORATION'; index += 1) this.advanceMapTurn('wait', false);
-    const finish = () => { this.setMessage(messages.join(' · ') || '你决定不再停留。'); this.updateVision(); this.render(); };
+    const finish = () => { this.setMessage(messages.join(' · ') || '你决定不再停留。'); this.updateVision(); this.persistExpedition(); this.render(); };
     if (this.callbacks.onMapEventResult) this.callbacks.onMapEventResult(messages, finish); else finish();
   }
 
@@ -252,7 +266,7 @@ export class GridExplorationRuntime {
     this.player.loot.monsterMeat += amount;
     this.save.corpsesHarvested = (this.save.corpsesHarvested || 0) + 1;
     this.setMessage(`切割完成，获得 ${amount} 份异变肉块。`);
-    this.updateVision(); this.render();
+    this.updateVision(); this.persistExpedition(); this.render();
   }
 
   extract() {
@@ -285,6 +299,13 @@ export class GridExplorationRuntime {
       monsters: this.monsters.map((item) => ({ ...item, configId: item.config.id, config: undefined })),
       corpses: this.corpses.map((item) => ({ ...item, configId: item.config.id, config: undefined })),
       visitedTiles: [...this.visitedTiles],
+      seenSpawnerIds: [...(this.seenSpawnerIds || [])],
+      randomState: this.random?.getState?.(),
+      mapEventState: this.eventService ? {
+        triggered: [...this.eventService.triggered],
+        count: this.eventService.count,
+        lastStep: this.eventService.lastStep
+      } : undefined,
       tileMemory: this.tiles.filter((tile) => tile.visibility !== 'unexplored').map((tile) => ({ x: tile.x, y: tile.y, visibility: tile.visibility, rememberedContent: tile.rememberedContent }))
     };
     this.callbacks.onSave?.(this.save);
@@ -294,11 +315,34 @@ export class GridExplorationRuntime {
     const snapshot = this.save.activeExpedition;
     if (!snapshot?.player || snapshot.mapId !== this.mapConfig.id) return;
     this.turn = snapshot.turn || 0;
-    this.player = clone(snapshot.player);
-    this.monsters = (snapshot.monsters || []).map((item) => ({ ...item, config: this.config.monsters.find((config) => config.id === item.configId) })).filter((item) => item.config);
-    this.corpses = (snapshot.corpses || []).map((item) => ({ ...item, config: this.config.monsters.find((config) => config.id === item.configId) })).filter((item) => item.config);
-    this.visitedTiles = new Set(snapshot.visitedTiles || []);
-    for (const memory of snapshot.tileMemory || []) Object.assign(this.tileAt(memory.x, memory.y), memory);
+    this.player = { ...this.player, ...clone(snapshot.player), loot: { ...this.player.loot, ...clone(snapshot.player.loot || {}) } };
+    if (Array.isArray(snapshot.monsters)) {
+      this.monsters = snapshot.monsters.map((item) => {
+        const config = this.config.monsters.find((candidate) => candidate.id === item.configId);
+        return {
+          ...item,
+          config,
+          spawnTurnsLeft: item.spawnTurnsLeft ?? config?.spawnConfig?.initialDelayTurns ?? 0,
+          spawnedTotal: item.spawnedTotal ?? 0
+        };
+      }).filter((item) => item.config);
+    }
+    if (Array.isArray(snapshot.corpses)) {
+      this.corpses = snapshot.corpses.map((item) => ({ ...item, config: this.config.monsters.find((config) => config.id === item.configId) })).filter((item) => item.config);
+    }
+    if (Array.isArray(snapshot.visitedTiles)) this.visitedTiles = new Set(snapshot.visitedTiles);
+    const rememberedSpawnerIds = (snapshot.tileMemory || []).map((memory) => memory.rememberedContent?.enemy).filter((enemy) => enemy?.isSpawner).map((enemy) => enemy.id);
+    this.seenSpawnerIds = new Set(snapshot.seenSpawnerIds || rememberedSpawnerIds);
+    this.random?.setState?.(snapshot.randomState);
+    if (this.eventService && snapshot.mapEventState) {
+      this.eventService.triggered = new Set(snapshot.mapEventState.triggered || []);
+      this.eventService.count = snapshot.mapEventState.count ?? 0;
+      this.eventService.lastStep = snapshot.mapEventState.lastStep ?? -Infinity;
+    }
+    for (const memory of snapshot.tileMemory || []) {
+      const tile = this.tileAt(memory.x, memory.y);
+      if (tile) Object.assign(tile, memory);
+    }
     this.message = `已恢复外出记录 · Seed ${this.seed}`;
   }
 
@@ -363,6 +407,8 @@ export class GridExplorationRuntime {
     for (const spawner of [...this.monsters]) {
       const cfg = spawner.config.spawnConfig;
       if (!cfg?.enabled || spawner.health <= 0) continue;
+      spawner.spawnTurnsLeft ??= cfg.initialDelayTurns ?? 0;
+      spawner.spawnedTotal ??= 0;
       spawner.spawnTurnsLeft -= 1;
       if (spawner.spawnTurnsLeft > 0) continue;
       spawner.spawnTurnsLeft = Math.max(1, cfg.intervalTurns);
@@ -396,11 +442,13 @@ export class GridExplorationRuntime {
         candidates.push({ x, y });
       }
     }
-    return candidates.length ? candidates[Math.floor(this.random() * candidates.length)] : null;
+    const random = this.random || Math.random;
+    return candidates.length ? candidates[Math.floor(random() * candidates.length)] : null;
   }
 
   notify(type, monster, message) {
-    const enabled = type === 'attack-intent' ? this.config.ui.showAttackIntent : this.config.ui.showEnemyAlert;
+    const enabled = type === 'nest-sighted'
+      || (type === 'attack-intent' ? this.config.ui.showAttackIntent : this.config.ui.showEnemyAlert);
     if (!enabled) return;
     this.setMessage(message);
     this.callbacks.onNotice?.({ type, message, enemy: monster.config.name });
@@ -458,7 +506,8 @@ export class GridExplorationRuntime {
       this.eatMonsterMeat();
       this.battle.log.push('你吞下异变肉块，力量与低语一同涌来。');
     } else if (action === 'escape') {
-      if (Math.random() <= this.config.battle.baseEscapeChance) return this.escapeBattle();
+      const random = this.random || Math.random;
+      if (random() <= this.config.battle.baseEscapeChance) return this.escapeBattle();
       this.battle.log.push('逃跑失败。');
       if (!this.config.battle.failedEscapeEnemyAttack) return this.finishBattleRound();
     }
@@ -503,7 +552,7 @@ export class GridExplorationRuntime {
     const finish = () => {
       this.mode = 'OUTDOOR_EXPLORATION'; this.battle = null;
       this.setMessage(monster.config.spawnConfig?.enabled ? '巢穴停止了蠕动。尸体可以切割。' : `${monster.config.name}倒下了。尸体就在脚下，可以切割。`);
-      this.updateVision(); this.render();
+      this.updateVision(); this.persistExpedition(); this.render();
     };
     if (this.callbacks.onBattleResult) this.callbacks.onBattleResult({ type: 'victory', title: `击败 ${monster.config.name}`, detail: '尸体已留下，可以进行切割。' }, finish);
     else finish();
@@ -522,7 +571,7 @@ export class GridExplorationRuntime {
     const finish = () => {
       this.mode = 'OUTDOOR_EXPLORATION'; this.battle = null;
       this.setMessage(`你逃回接敌前的位置，${monster.config.name}暂时没有追来。`);
-      this.updateVision(); this.render();
+      this.updateVision(); this.persistExpedition(); this.render();
     };
     if (this.callbacks.onBattleResult) this.callbacks.onBattleResult({ type: 'escaped', title: '逃跑成功', detail: '敌人暂时失去了战斗意志。' }, finish);
     else finish();
