@@ -7,15 +7,20 @@ const hashSeed = (value) => {
   return hash >>> 0;
 };
 
-export function createSeededRandom(seed) {
-  let state = hashSeed(seed) || 0x6d2b79f5;
-  return () => {
-    state += 0x6d2b79f5;
+export function createSeededRandom(seed, savedState) {
+  let state = Number.isInteger(savedState) ? savedState >>> 0 : hashSeed(seed) || 0x6d2b79f5;
+  const random = () => {
+    state = (state + 0x6d2b79f5) >>> 0;
     let value = state;
     value = Math.imul(value ^ (value >>> 15), value | 1);
     value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
     return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
   };
+  random.getState = () => state;
+  random.setState = (nextState) => {
+    if (Number.isInteger(nextState)) state = nextState >>> 0;
+  };
+  return random;
 }
 
 export function createExpeditionSeed(map) {
@@ -54,8 +59,9 @@ export function generateRandomPlacements(map, monsterIds, seed, fixedPlacements 
       const extracts = map.extractionPoints || [map.extractPoint];
       if (distance(point, map.playerSpawn) < (rule.minDistanceFromPlayerSpawn || 0)) continue;
       if (extracts.some((extract) => distance(point, extract) < (rule.minDistanceFromExtraction || 0))) continue;
-      if (generated.some((item) => distance(point, item) < (rule.minDistanceBetweenAnyMonster || 0))) continue;
-      if (generated.some((item) => item.monsterId === rule.monsterConfigId && distance(point, item) < (rule.minDistanceBetweenSameType || 0))) continue;
+      const existingPlacements = [...fixedPlacements, ...generated];
+      if (existingPlacements.some((item) => distance(point, item) < (rule.minDistanceBetweenAnyMonster || 0))) continue;
+      if (existingPlacements.some((item) => item.monsterId === rule.monsterConfigId && distance(point, item) < (rule.minDistanceBetweenSameType || 0))) continue;
       generated.push({ monsterId: rule.monsterConfigId, x: point.x, y: point.y, count: 1, randomRuleId: rule.id });
       occupied.add(keyOf(point));
       placed += 1;

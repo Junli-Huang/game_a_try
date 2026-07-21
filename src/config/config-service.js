@@ -27,6 +27,12 @@ export class ConfigService {
       migrated.battle.playerActions = migrated.battle.playerActions.map((action) => action === 'eat' ? 'item' : action);
     }
     const defaults = this.loadDefaultConfig();
+    const monsters = Array.isArray(migrated.monsters) ? migrated.monsters : structuredClone(defaults.monsters);
+    const monsterIds = new Set(monsters.map((monster) => monster.id));
+    migrated.monsters = [
+      ...monsters,
+      ...defaults.monsters.filter((monster) => monster.spawnConfig?.enabled && !monsterIds.has(monster.id)).map((monster) => structuredClone(monster))
+    ];
     migrated.version = '1.3.0';
     migrated.maps = (migrated.maps || defaults.maps).map((map, index) => ({
       ...(defaults.maps[index] || defaults.maps[0]),
@@ -90,6 +96,14 @@ export class ConfigService {
         if (!isFiniteNumber(monster[key]) || monster[key] < 0) errors.push(`${monster.id}.${key} 必须是非负数`);
       });
       if (monster.canChase && monster.maxChaseDistance < monster.detectRange) errors.push(`${monster.name}：最大追踪距离不能小于感知距离`);
+      const spawn = monster.spawnConfig;
+      if (spawn?.enabled) {
+        ['intervalTurns', 'initialDelayTurns', 'maxAliveChildren', 'spawnRadiusMin', 'spawnRadiusMax'].forEach((key) => {
+          if (!Number.isInteger(spawn[key]) || spawn[key] < 0) errors.push(`${monster.name}：产出配置 ${key} 必须是非负整数`);
+        });
+        if (spawn.maxTotalChildren != null && (!Number.isInteger(spawn.maxTotalChildren) || spawn.maxTotalChildren < 0)) errors.push(`${monster.name}：总产出上限必须是非负整数`);
+        if (spawn.spawnRadiusMax < spawn.spawnRadiusMin) errors.push(`${monster.name}：产出最大半径不能小于最小半径`);
+      }
     });
 
     const sortedStages = [...config.madnessStages].sort((a, b) => a.min - b.min);
@@ -107,7 +121,13 @@ export class ConfigService {
       if (!extracts.length) errors.push(`${map.name}：至少需要一个撤离点`);
       extracts.forEach((point) => { if (!inside(point)) errors.push(`${map.name}：撤离点超出地图边界`); });
       if (!map.fogOfWar || map.fogOfWar.visionRadius < 1) errors.push(`${map.name}：视野半径必须大于 0`);
-      const obstacles = new Set((map.obstacles || []).map((item) => `${item.x},${item.y}`));
+      const obstacles = new Set();
+      (map.obstacles || []).forEach((obstacle) => {
+        const key = `${obstacle.x},${obstacle.y}`;
+        if (!inside(obstacle)) errors.push(`${map.name}：障碍格超出地图边界`);
+        if (obstacles.has(key)) errors.push(`${map.name}：地图对象不能重叠（重复障碍格）`);
+        obstacles.add(key);
+      });
       const occupied = new Set([`${map.playerSpawn.x},${map.playerSpawn.y}`]);
       if (obstacles.has(`${map.playerSpawn.x},${map.playerSpawn.y}`)) errors.push(`${map.name}：玩家出生点不能位于障碍格`);
       extracts.forEach((point) => {
@@ -119,6 +139,7 @@ export class ConfigService {
       map.monsterSpawns.forEach((spawn) => {
         if (!monsterIds.has(spawn.monsterId)) errors.push(`${map.name} 引用了不存在的怪物：${spawn.monsterId}`);
         if (!inside(spawn)) errors.push(`${map.name} 的怪物出生点超出边界`);
+        if (!Number.isInteger(spawn.count) || spawn.count < 1) errors.push(`${map.name}：固定怪物数量必须是正整数`);
         if (obstacles.has(`${spawn.x},${spawn.y}`)) errors.push(`${map.name}：怪物不能位于障碍格`);
         const key = `${spawn.x},${spawn.y}`;
         if (occupied.has(key)) errors.push(`${map.name}：固定怪物不能与其他对象重叠`);
@@ -163,7 +184,8 @@ export function createInitialSave(config) {
     goalResultSeen: false,
     seenEventIds: [],
     farm: { planted: false, cyclesLeft: 0 },
-    lastResult: null
+    lastResult: null,
+    activeExpedition: null
   };
 }
 
