@@ -45,7 +45,7 @@ test('V1.2 config migration adds V1.3 fields without changing fixed placements',
   delete legacy.maps[0].randomSpawnRules;
 
   const migrated = service.importConfig(JSON.stringify(legacy));
-  assert.equal(migrated.version, '1.3.0');
+  assert.equal(migrated.version, '1.3.1');
   assert.ok(migrated.monsters.some((monster) => monster.id === 'basic_nest'));
   assert.deepEqual(migrated.maps[0].monsterSpawns, fixedPlacements);
   assert.deepEqual(migrated.maps[0].extractionPoints, [legacy.maps[0].extractPoint]);
