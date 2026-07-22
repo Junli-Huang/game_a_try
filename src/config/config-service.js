@@ -33,7 +33,7 @@ export class ConfigService {
       ...monsters,
       ...defaults.monsters.filter((monster) => monster.spawnConfig?.enabled && !monsterIds.has(monster.id)).map((monster) => structuredClone(monster))
     ];
-    migrated.version = '1.3.0';
+    migrated.version = '1.3.1';
     migrated.maps = (migrated.maps || defaults.maps).map((map, index) => ({
       ...(defaults.maps[index] || defaults.maps[0]),
       ...map,
@@ -179,8 +179,11 @@ export function createInitialSave(config) {
     totalMonsterMeatReturned: 0,
     enemiesKilled: 0,
     corpsesHarvested: 0,
+    nestsDestroyed: 0,
+    totalMonsterMeatConsumed: 0,
     highestMadness: config.player.madness,
     introSeen: false,
+    tutorial: { skippedAll: false, completedSteps: [] },
     goalResultSeen: false,
     seenEventIds: [],
     farm: { planted: false, cyclesLeft: 0 },
@@ -192,7 +195,15 @@ export function createInitialSave(config) {
 export function loadSave(config) {
   try {
     const value = JSON.parse(localStorage.getItem(SAVE_STORAGE_KEY));
-    return value && typeof value === 'object' ? { ...createInitialSave(config), ...value, farm: { ...createInitialSave(config).farm, ...value.farm } } : createInitialSave(config);
+    const initial = createInitialSave(config);
+    return value && typeof value === 'object' ? {
+      ...initial, ...value,
+      farm: { ...initial.farm, ...value.farm },
+      tutorial: {
+        ...initial.tutorial, ...(value.tutorial || {}),
+        completedSteps: Array.isArray(value.tutorial?.completedSteps) ? [...new Set(value.tutorial.completedSteps)] : []
+      }
+    } : initial;
   } catch { return createInitialSave(config); }
 }
 

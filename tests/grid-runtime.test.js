@@ -83,13 +83,33 @@ test('faster enemy acts before the player receives control', () => {
 test('interaction describes harvest, full inventory, and extraction', () => {
   const runtime = createRuntime();
   runtime.corpses.push({ id: 'corpse', x: 5, y: 5, config: runtime.config.monsters[0], harvested: false });
-  assert.equal(runtime.getInteraction().label, '切割尸体');
+  assert.equal(runtime.getInteraction().label, '切割（2 回合）');
   runtime.player.loot.monsterMeat = runtime.config.player.inventoryCapacity;
   assert.equal(runtime.getInteraction().enabled, false);
   runtime.corpses = [];
   runtime.player.x = runtime.mapConfig.extractPoint.x;
   runtime.player.y = runtime.mapConfig.extractPoint.y;
-  assert.equal(runtime.getInteraction().label, '开始撤离');
+  assert.equal(runtime.getInteraction().label, '撤离（3 回合）');
+});
+
+test('expedition summary derives local statistics and records combat failure', () => {
+  const runtime = createRuntime();
+  runtime.expeditionStart = { madness: 0, enemiesKilled: 2, nestsDestroyed: 1, monsterMeatConsumed: 3 };
+  runtime.turn = 8;
+  runtime.visitedTiles = new Set(['1,1', '2,1', '3,1']);
+  runtime.save.enemiesKilled = 4;
+  runtime.save.nestsDestroyed = 2;
+  runtime.save.totalMonsterMeatConsumed = 4;
+  runtime.player.loot.monsterMeat = 3;
+  runtime.player.madness = 12;
+  assert.deepEqual(runtime.getExpeditionSummary(), {
+    turns: 8, exploredTiles: 3, kills: 2, nestsDestroyed: 1,
+    meatCollected: 4, meatConsumed: 1, madnessDelta: 12
+  });
+  runtime.stop = () => {};
+  runtime.failExpedition('combat');
+  assert.equal(runtime.save.lastResult.reason, 'combat');
+  assert.equal(runtime.save.lastResult.lostMeat, 3);
 });
 
 test('outdoor item menu exposes meat and eating consumes one exploration turn', () => {

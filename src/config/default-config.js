@@ -1,5 +1,5 @@
 export const DEFAULT_CONFIG = {
-  version: '1.3.0',
+  version: '1.3.1',
   global: {
     maxHealth: 100,
     maxHunger: 100,
@@ -91,7 +91,7 @@ export const DEFAULT_CONFIG = {
       fogOfWar: { enabled: true, visionRadius: 3, shape: 'square', terrainBlocksVision: false, exploredBrightness: 0.38, showEnemyMemory: true, showCorpseMemory: true },
       playerSpawn: { x: 1, y: 10 },
       extractPoint: { x: 18, y: 2, requiredTurns: 3 },
-      extractionPoints: [{ x: 18, y: 2, requiredTurns: 3 }],
+      extractionPoints: [{ x: 18, y: 2, requiredTurns: 3 }, { x: 18, y: 17, requiredTurns: 3 }],
       random: { useFixedSeed: true, seed: 'fog-v13-demo' },
       randomSpawnRules: [
         { id: 'random-wanderers', enabled: true, monsterConfigId: 'wanderer', minCount: 1, maxCount: 2,
