@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ConfigService } from '../src/config/config-service.js';
+import { ConfigService, createInitialSave } from '../src/config/config-service.js';
 
 const service = new ConfigService();
 
@@ -8,6 +8,12 @@ test('default config passes validation', () => {
   const result = service.validateConfig(service.loadDefaultConfig());
   assert.equal(result.valid, true, result.errors.join('\n'));
   assert.equal(service.loadDefaultConfig().player.hunger, 100);
+});
+
+test('new saves initialize persistent health from player config', () => {
+  const config = service.loadDefaultConfig();
+  const save = createInitialSave(config);
+  assert.equal(save.health, config.player.health);
 });
 
 test('invalid references and overlapping madness stages are rejected', () => {

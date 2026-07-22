@@ -40,7 +40,7 @@ export class GridExplorationRuntime {
     this.random = createSeededRandom(`${this.seed}:runtime`, snapshot?.randomState);
     this.player = {
       x: this.mapConfig.playerSpawn.x, y: this.mapConfig.playerSpawn.y,
-      health: this.config.player.health, hunger: this.config.player.hunger,
+      health: clamp(this.save.health ?? this.config.player.health, 1, this.config.global.maxHealth), hunger: this.config.player.hunger,
       madness: this.save.madness, loot: { monsterMeat: 0 }, dead: false
     };
     this.monsters = this.spawnMonsters();
@@ -655,6 +655,7 @@ export class GridExplorationRuntime {
     this.save.successfulExtractions = (this.save.successfulExtractions || 0) + 1;
     this.save.totalMonsterMeatReturned = (this.save.totalMonsterMeatReturned || 0) + this.player.loot.monsterMeat;
     this.save.madness = Math.round(this.player.madness);
+    this.save.health = Math.round(this.player.health);
     this.advanceFarm(); this.save.expeditions += 1;
     this.save.lastResult = { success: true, meat: this.player.loot.monsterMeat, summary, viewed: false };
     this.save.activeExpedition = null;
@@ -664,6 +665,7 @@ export class GridExplorationRuntime {
   failExpedition(reason = this.player.hunger <= 0 ? 'starvation' : 'other') {
     if (!this.running) return;
     if (this.config.global.keepMadnessOnDeath) this.save.madness = Math.round(this.player.madness);
+    this.save.health = this.config.player.health;
     this.advanceFarm(); this.save.expeditions += 1;
     this.save.expeditionFailures = (this.save.expeditionFailures || 0) + 1;
     const lostMeat = this.config.global.loseLootOnDeath ? this.player.loot.monsterMeat : 0;
