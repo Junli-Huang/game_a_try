@@ -239,7 +239,7 @@ export class GridExplorationRuntime {
     if (!item) return { ok: false, message: '这个道具不能在户外使用。' };
     if (item.id !== 'monster_meat' || this.player.loot.monsterMeat <= 0) return { ok: false, message: '背包里没有可用的异变肉块。' };
     this.eatMonsterMeat();
-    this.setMessage(`你吃下${item.name}：饥饿 +${item.hungerRestore}，疯狂 +${item.madnessGain}。`);
+    this.setMessage(`你吃下${item.name}：生命 +${item.healthRestore}，饥饿 +${item.hungerRestore}，疯狂 +${item.madnessGain}。`);
     this.advanceMapTurn('wait');
     return { ok: true, item, hunger: this.player.hunger, madness: this.player.madness };
   }
@@ -520,7 +520,7 @@ export class GridExplorationRuntime {
         this.battle.log.push('没有可以在战斗中食用的怪物肉。'); return this.emitBattle();
       }
       this.eatMonsterMeat();
-      this.battle.log.push('你吞下异变肉块，力量与低语一同涌来。');
+      this.battle.log.push(`你吞下异变肉块，恢复 ${this.config.foods.find((item) => item.id === 'monster_meat').healthRestore} 点生命，力量与低语一同涌来。`);
     } else if (action === 'escape') {
       const random = this.random || Math.random;
       if (random() <= this.config.battle.baseEscapeChance) return this.escapeBattle();
@@ -604,6 +604,7 @@ export class GridExplorationRuntime {
     const food = this.config.foods.find((item) => item.id === 'monster_meat');
     this.player.loot.monsterMeat -= 1;
     this.save.totalMonsterMeatConsumed = (this.save.totalMonsterMeatConsumed || 0) + 1;
+    this.player.health = clamp(this.player.health + food.healthRestore, 0, this.config.global.maxHealth);
     this.player.hunger = clamp(this.player.hunger + food.hungerRestore, 0, this.config.global.maxHunger);
     this.changeMadness(food.madnessGain);
   }
