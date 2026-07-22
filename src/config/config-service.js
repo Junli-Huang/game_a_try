@@ -27,6 +27,11 @@ export class ConfigService {
       migrated.battle.playerActions = migrated.battle.playerActions.map((action) => action === 'eat' ? 'item' : action);
     }
     const defaults = this.loadDefaultConfig();
+    const defaultFoods = new Map(defaults.foods.map((food) => [food.id, food]));
+    migrated.foods = (migrated.foods || defaults.foods).map((food) => ({
+      ...food,
+      healthRestore: food.healthRestore ?? defaultFoods.get(food.id)?.healthRestore ?? 0
+    }));
     const monsters = Array.isArray(migrated.monsters) ? migrated.monsters : structuredClone(defaults.monsters);
     const monsterIds = new Set(monsters.map((monster) => monster.id));
     migrated.monsters = [
@@ -90,6 +95,12 @@ export class ConfigService {
     const monsterIds = uniqueIds(config.monsters, 'monsters');
     const foodIds = uniqueIds(config.foods, 'foods');
     uniqueIds(config.equipment, 'equipment');
+
+    config.foods.forEach((food) => {
+      ['healthRestore', 'hungerRestore', 'madnessGain', 'maxStack'].forEach((key) => {
+        if (!isFiniteNumber(food[key]) || food[key] < 0) errors.push(`${food.id}.${key} 必须是非负数`);
+      });
+    });
 
     config.monsters.forEach((monster) => {
       ['health', 'speed', 'alertDuration', 'attackIntentRange', 'actionChance', 'maxMovesPerTurn', 'harvestTurns', 'meatYield'].forEach((key) => {
