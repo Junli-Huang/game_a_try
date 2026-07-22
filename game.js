@@ -42,7 +42,7 @@ const labels = {
   loseTargetDelay: '丢失等待时间', canChase: '允许追踪', maxChaseDistance: '最大追踪距离',
   maxHomeDistance: '最大离家距离', chaseSpeedMultiplier: '追踪速度倍率', returnHome: '返回出生点',
   returnSpeedMultiplier: '返回速度倍率', canHarvest: '可切割', harvestDuration: '切割时间', meatYield: '基础肉量',
-  carriedLoot: '携带物掉落表', type: '类型', hungerRestore: '恢复饥饿', madnessGain: '增加疯狂',
+  carriedLoot: '携带物掉落表', type: '类型', healthRestore: '恢复生命', hungerRestore: '恢复饥饿', madnessGain: '增加疯狂',
   allowOutdoor: '户外可食用', allowShelter: '庇护所可食用', maxStack: '最大堆叠', min: '最小值', max: '最大值',
   attackMultiplier: '攻击倍率', state: '状态名', effectIntensity: '视觉强度', slot: '装备槽', attackSpeedMultiplier: '攻速倍率',
   attackRangeBonus: '攻击距离加成', defaultEquipped: '默认装备', width: '宽度', height: '高度', playerSpawn: '玩家出生点',
@@ -141,7 +141,7 @@ function renderShelter() {
         <article class="panel pantry-panel">
           <span class="panel-kicker">仓储</span><h3>食物库存</h3>
           <div class="resource"><span class="resource-icon safe"></span><div><strong>储备粮 × ${save.safeFood}</strong><small>安全，不增加疯狂</small></div>${button('食用', 'eat-safe', 'small')}</div>
-          <div class="resource"><span class="resource-icon meat"></span><div><strong>异变肉块 × ${save.monsterMeat}</strong><small>恢复饥饿，但污染理智</small></div>${button('食用', 'eat-meat', 'small danger')}</div>
+          <div class="resource"><span class="resource-icon meat"></span><div><strong>异变肉块 × ${save.monsterMeat}</strong><small>恢复生命和饥饿，但污染理智</small></div>${button('食用', 'eat-meat', 'small danger')}</div>
         </article>
         <article class="panel farm-panel">
           <span class="panel-kicker">种植格</span><h3>${crop.name}</h3>
@@ -226,7 +226,7 @@ const tutorialContent = {
   enemy_alert: ['敌人发现了你', '敌人会经历警觉、追踪和准备接敌等状态。\n\n观察图标与文字，决定绕行、战斗或撤退。'],
   first_battle: ['回合制战斗', '速度决定战斗开始时的先后手。\n\n你可以攻击、防御、使用道具或尝试逃跑。'],
   first_harvest: ['切割尸体', '站在尸体所在格，点击高亮按钮或按 E 切割。\n\n切割会推进地图回合，附近敌人仍可能行动。'],
-  monster_meat: ['异变肉', '异变肉可以恢复饥饿，让你继续探索。\n\n但食用会增加疯狂；疯狂也会提高攻击。'],
+  monster_meat: ['异变肉', '异变肉可以恢复生命和饥饿，让你继续探索。\n\n但食用会增加疯狂；疯狂也会提高攻击。'],
   first_nest: ['腐化巢穴', '巢穴不会主动追击，但会定期产出怪物。\n\n尝试进入巢穴所在格，可以主动接敌并破坏它。'],
   first_extraction: ['撤离', '撤离需要等待多个地图回合，期间敌人仍会行动。\n\n成功撤离后，本次获得的异变肉才会带回庇护所。']
 };

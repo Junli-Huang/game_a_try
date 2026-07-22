@@ -71,8 +71,8 @@ export const DEFAULT_CONFIG = {
     }
   ],
   foods: [
-    { id: 'safe_food', name: '储备粮', type: 'safe', hungerRestore: 32, madnessGain: 0, allowOutdoor: true, allowShelter: true, maxStack: 20 },
-    { id: 'monster_meat', name: '异变肉块', type: 'corrupted', hungerRestore: 26, madnessGain: 12, allowOutdoor: true, allowShelter: true, maxStack: 20 }
+    { id: 'safe_food', name: '储备粮', type: 'safe', healthRestore: 0, hungerRestore: 32, madnessGain: 0, allowOutdoor: true, allowShelter: true, maxStack: 20 },
+    { id: 'monster_meat', name: '异变肉块', type: 'corrupted', healthRestore: 10, hungerRestore: 26, madnessGain: 12, allowOutdoor: true, allowShelter: true, maxStack: 20 }
   ],
   madnessStages: [
     { min: 0, max: 29, attackMultiplier: 1, state: '清醒', effectIntensity: 0 },

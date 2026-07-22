@@ -116,6 +116,7 @@ test('outdoor item menu exposes meat and eating consumes one exploration turn', 
   const runtime = createRuntime();
   runtime.running = true;
   runtime.player.loot.monsterMeat = 2;
+  runtime.player.health = 75;
   runtime.player.hunger = 40;
   runtime.render = () => {};
   const beforeMadness = runtime.player.madness;
@@ -125,8 +126,18 @@ test('outdoor item menu exposes meat and eating consumes one exploration turn', 
   assert.equal(result.ok, true);
   assert.equal(runtime.player.loot.monsterMeat, 1);
   assert.equal(runtime.turn, 1);
+  assert.equal(runtime.player.health, 85);
   assert.equal(runtime.player.hunger, 66);
   assert.ok(runtime.player.madness > beforeMadness);
+});
+
+test('eating meat in battle restores health up to the configured maximum', () => {
+  const runtime = createRuntime();
+  runtime.player.health = 95;
+  runtime.player.loot.monsterMeat = 1;
+  runtime.eatMonsterMeat();
+  assert.equal(runtime.player.health, 100);
+  assert.equal(runtime.player.loot.monsterMeat, 0);
 });
 
 test('hunger decreases on movement only', () => {

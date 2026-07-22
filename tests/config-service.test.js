@@ -34,6 +34,13 @@ test('legacy battle eat action migrates to item menu', () => {
   assert.deepEqual(imported.battle.playerActions, ['attack', 'defend', 'item', 'escape']);
 });
 
+test('legacy food config gains the default health restore value', () => {
+  const config = service.loadDefaultConfig();
+  delete config.foods.find((food) => food.id === 'monster_meat').healthRestore;
+  const imported = service.importConfig(JSON.stringify(config));
+  assert.equal(imported.foods.find((food) => food.id === 'monster_meat').healthRestore, 10);
+});
+
 test('V1.2 config migration adds V1.3 fields without changing fixed placements', () => {
   const legacy = service.loadDefaultConfig();
   legacy.version = '1.2.0';
