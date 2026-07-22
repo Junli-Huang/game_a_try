@@ -181,6 +181,7 @@ export class ConfigService {
 
 export function createInitialSave(config) {
   return {
+    health: config.player.health,
     safeFood: config.shelter?.initialSafeFood ?? 4,
     monsterMeat: config.shelter?.initialMonsterMeat ?? 0,
     madness: config.player.madness,

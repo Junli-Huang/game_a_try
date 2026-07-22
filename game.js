@@ -133,6 +133,7 @@ function renderShelter() {
       <div class="shelter-grid">
         <article class="panel status-panel">
           <span class="panel-kicker">幸存者</span><h3>出发前状态</h3>
+          <div class="stat-row"><span>生命</span><strong>${save.health} / ${config.global.maxHealth}</strong></div>
           <div class="stat-row"><span>疯狂</span><strong>${save.madness} / ${config.global.maxMadness}</strong></div>
           <div class="meter madness"><i style="width:${save.madness}%"></i></div>
           <p class="state-copy">${stage.state} · 攻击倍率 ×${stage.attackMultiplier}</p>
@@ -205,6 +206,7 @@ function eatInShelter(itemId) {
   if (save[key] <= 0) return toast('库存不足');
   const before = save.madness;
   save[key] -= 1;
+  save.health = Math.min(config.global.maxHealth, save.health + food.healthRestore);
   save.madness = Math.min(config.global.maxMadness, save.madness + food.madnessGain);
   save.highestMadness = Math.max(save.highestMadness || 0, save.madness);
   persistSave(save); renderShelter();

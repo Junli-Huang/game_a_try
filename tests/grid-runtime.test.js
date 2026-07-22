@@ -112,6 +112,24 @@ test('expedition summary derives local statistics and records combat failure', (
   assert.equal(runtime.save.lastResult.lostMeat, 3);
 });
 
+test('successful extraction persists remaining health', () => {
+  const runtime = createRuntime();
+  runtime.running = true;
+  runtime.player.health = 63;
+  runtime.stop = () => {};
+  runtime.succeedExpedition();
+  assert.equal(runtime.save.health, 63);
+});
+
+test('failed expedition resets health as part of death recovery', () => {
+  const runtime = createRuntime();
+  runtime.running = true;
+  runtime.player.health = 0;
+  runtime.stop = () => {};
+  runtime.failExpedition('combat');
+  assert.equal(runtime.save.health, runtime.config.player.health);
+});
+
 test('outdoor item menu exposes meat and eating consumes one exploration turn', () => {
   const runtime = createRuntime();
   runtime.running = true;
