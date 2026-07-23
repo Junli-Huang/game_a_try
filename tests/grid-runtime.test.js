@@ -51,8 +51,11 @@ test('enemy warns through Alert and AttackIntent before starting battle', () => 
   const runtime = createRuntime();
   runtime.callbacks.onNotice = (notice) => notices.push(notice.type);
   runtime.render = () => {};
-  const config = { ...runtime.config.monsters[1], actionChance: 1, alertDuration: 1, detectRadius: 3 };
-  const enemy = { id: 'warn-test', config, x: 7, y: 5, homeX: 7, homeY: 5, health: config.health, state: 'Wander', cooldownTurns: 0, alertTurns: 0, intent: null };
+  const config = {
+    ...runtime.config.monsters[1], actionChance: 1, alertDuration: 1,
+    vision: { ...runtime.config.monsters[1].vision, canRotateBeforeMove: false }
+  };
+  const enemy = { id: 'warn-test', config, x: 7, y: 5, homeX: 7, homeY: 5, health: config.health, state: 'Wander', facing: 'west', cooldownTurns: 0, alertTurns: 0, intent: null };
   runtime.monsters.push(enemy);
 
   runtime.updateMonster(enemy);
@@ -64,6 +67,125 @@ test('enemy warns through Alert and AttackIntent before starting battle', () => 
   assert.deepEqual(notices, ['alert', 'chase', 'attack-intent']);
   runtime.updateMonster(enemy);
   assert.equal(runtime.mode, 'BATTLE');
+});
+
+test('a player behind an adjacent enemy is not detected', () => {
+  const runtime = createRuntime();
+  const base = runtime.config.monsters[1];
+  const config = { ...base, actionChance: 0, vision: { ...base.vision, canRotateBeforeMove: false } };
+  const enemy = {
+    id: 'backstab-test', config, x: 6, y: 5, homeX: 6, homeY: 5,
+    health: config.health, state: 'Wander', facing: 'east', cooldownTurns: 0
+  };
+  runtime.monsters.push(enemy);
+  runtime.updateMonster(enemy);
+  assert.equal(enemy.state, 'Wander');
+});
+
+test('turning is free and a wanderer can still move in the same enemy phase', () => {
+  const runtime = createRuntime();
+  const base = runtime.config.monsters[1];
+  const config = { ...base, actionChance: 1, vision: { ...base.vision, rotateWhenIdle: true } };
+  const enemy = {
+    id: 'turn-and-move', config, x: 8, y: 8, homeX: 8, homeY: 8,
+    health: config.health, state: 'Wander', facing: 'east', cooldownTurns: 0
+  };
+  runtime.monsters.push(enemy);
+  runtime.random = () => 0.5;
+  const turn = runtime.turn;
+  const before = { x: enemy.x, y: enemy.y };
+  runtime.updateMonster(enemy);
+  assert.equal(runtime.turn, turn);
+  assert.notDeepEqual({ x: enemy.x, y: enemy.y }, before);
+  const expectedFacing = enemy.x > before.x ? 'east' : enemy.x < before.x ? 'west' : enemy.y > before.y ? 'south' : 'north';
+  assert.equal(enemy.facing, expectedFacing);
+  assert.equal(runtime.mode, 'OUTDOOR_EXPLORATION');
+});
+
+test('post-move detection enters Alert without granting chase or attack', () => {
+  const notices = [];
+  const runtime = createRuntime();
+  runtime.callbacks.onNotice = (notice) => notices.push(notice.type);
+  const base = runtime.config.monsters[1];
+  const config = {
+    ...base, actionChance: 1, alertDuration: 2,
+    vision: { ...base.vision, canRotateBeforeMove: false, canDetectAfterMove: true }
+  };
+  const enemy = {
+    id: 'post-move-detect', config, x: 8, y: 5, homeX: 7, homeY: 5,
+    health: config.health, state: 'Return', facing: 'east', cooldownTurns: 0
+  };
+  runtime.monsters.push(enemy);
+  runtime.updateMonster(enemy);
+  assert.deepEqual({ x: enemy.x, y: enemy.y }, { x: 7, y: 5 });
+  assert.equal(enemy.facing, 'west');
+  assert.equal(enemy.state, 'Alert');
+  assert.equal(enemy.alertTurns, 2);
+  assert.deepEqual(notices, ['alert']);
+  assert.equal(runtime.mode, 'OUTDOOR_EXPLORATION');
+});
+
+test('Alert, Chase, Return, and Cooldown face their active target', () => {
+  const runtime = createRuntime();
+  const base = runtime.config.monsters[1];
+  const config = { ...base, actionChance: 0 };
+  const enemy = {
+    id: 'state-facing', config, x: 8, y: 8, homeX: 6, homeY: 8,
+    health: config.health, state: 'Alert', facing: 'north', cooldownTurns: 0,
+    alertTurns: 2, lastSeenPlayerPosition: { x: 8, y: 5 }
+  };
+  runtime.monsters.push(enemy);
+  runtime.updateMonster(enemy);
+  assert.equal(enemy.facing, 'north');
+  enemy.state = 'Chase'; enemy.lastSeenPlayerPosition = { x: 5, y: 8 };
+  runtime.updateMonster(enemy);
+  assert.equal(enemy.facing, 'west');
+  enemy.state = 'AttackIntent'; enemy.lastSeenPlayerPosition = { x: 8, y: 5 };
+  runtime.updateMonster(enemy);
+  assert.equal(enemy.facing, 'north');
+  enemy.state = 'Return'; enemy.lastSeenPlayerPosition = null;
+  runtime.updateMonster(enemy);
+  assert.equal(enemy.facing, 'west');
+  enemy.state = 'Cooldown'; enemy.cooldownTurns = 2; enemy.lastSeenPlayerPosition = { x: 8, y: 5 };
+  runtime.updateMonster(enemy);
+  assert.equal(enemy.facing, 'north');
+});
+
+test('visible enemy vision respects fog, memory, UI display, death, and nests', () => {
+  const runtime = createRuntime();
+  runtime.player.x = 5; runtime.player.y = 5;
+  const base = runtime.config.monsters[1];
+  const visible = { id: 'visible', config: base, x: 6, y: 5, homeX: 6, homeY: 5, health: 10, state: 'Wander', facing: 'east' };
+  const hidden = { ...visible, id: 'hidden', x: 15, y: 15 };
+  const dead = { ...visible, id: 'dead', x: 5, y: 6, health: 0 };
+  const nestConfig = runtime.config.monsters.find((monster) => monster.id === 'basic_nest');
+  const nest = { ...visible, id: 'nest', config: nestConfig, x: 6, y: 6 };
+  runtime.monsters.push(visible, hidden, dead, nest);
+  runtime.updateVision();
+  const overlay = runtime.getVisibleEnemyVision();
+  assert.ok(overlay.size > 0);
+  assert.ok(![...overlay.keys()].some((key) => key.startsWith('15,')));
+  runtime.config.ui.showEnemyVision = false;
+  assert.equal(runtime.getVisibleEnemyVision().size, 0);
+  assert.equal(visible.config.vision.enabled, true, 'display setting does not disable AI vision');
+});
+
+test('snapshot restores facing and gives legacy enemies a stable fallback', () => {
+  const runtime = createRuntime();
+  const base = runtime.config.monsters[1];
+  runtime.save.activeExpedition = {
+    mapId: runtime.mapConfig.id, seed: 'legacy-facing', player: runtime.player,
+    monsters: [
+      { id: 'saved-facing', configId: base.id, x: 6, y: 5, homeX: 6, homeY: 5, health: 10, state: 'Wander', facing: 'north' },
+      { id: 'legacy-facing', configId: base.id, x: 7, y: 5, homeX: 7, homeY: 5, health: 10, state: 'Wander' }
+    ],
+    corpses: [], visitedTiles: []
+  };
+  runtime.restoreExpedition();
+  assert.equal(runtime.monsters[0].facing, 'north');
+  const fallback = runtime.monsters[1].facing;
+  runtime.restoreExpedition();
+  assert.equal(runtime.monsters[1].facing, fallback);
 });
 
 test('faster enemy acts before the player receives control', () => {
