@@ -39,12 +39,33 @@ export class ConfigService {
       healthRestore: food.healthRestore ?? defaultFoods.get(food.id)?.healthRestore ?? 0
     }));
     const monsters = Array.isArray(migrated.monsters) ? migrated.monsters : structuredClone(defaults.monsters);
+    const defaultMonsters = new Map(defaults.monsters.map((monster) => [monster.id, monster]));
     const monsterIds = new Set(monsters.map((monster) => monster.id));
     migrated.monsters = [
-      ...monsters,
+      ...monsters.map((monster) => {
+        const fallback = defaultMonsters.get(monster.id);
+        const legacyRange = monster.detectRadius ?? monster.detectRange ?? fallback?.vision?.range ?? 0;
+        return {
+          ...monster,
+          vision: {
+            ...(fallback?.vision || {
+              enabled: !monster.spawnConfig?.enabled,
+              range: legacyRange,
+              angle: 90,
+              rotateWhenIdle: true,
+              canRotateBeforeMove: true,
+              canDetectAfterMove: true
+            }),
+            ...(monster.vision || {}),
+            range: monster.vision?.range ?? legacyRange,
+            enabled: monster.vision?.enabled ?? !monster.spawnConfig?.enabled
+          }
+        };
+      }),
       ...defaults.monsters.filter((monster) => monster.spawnConfig?.enabled && !monsterIds.has(monster.id)).map((monster) => structuredClone(monster))
     ];
-    migrated.version = '1.3.2';
+    migrated.ui = { ...defaults.ui, ...(migrated.ui || {}) };
+    migrated.version = '1.3.3';
     migrated.maps = (migrated.maps || defaults.maps).map((map, index) => ({
       ...(defaults.maps[index] || defaults.maps[0]),
       ...map,
@@ -128,7 +149,17 @@ export class ConfigService {
       ['health', 'speed', 'alertDuration', 'attackIntentRange', 'actionChance', 'maxMovesPerTurn', 'harvestTurns', 'meatYield'].forEach((key) => {
         if (!isFiniteNumber(monster[key]) || monster[key] < 0) errors.push(`${monster.id}.${key} 必须是非负数`);
       });
-      if (monster.canChase && monster.maxChaseDistance < monster.detectRange) errors.push(`${monster.name}：最大追踪距离不能小于感知距离`);
+      if (monster.canChase && monster.maxChaseDistance < (monster.vision?.range ?? monster.detectRange)) errors.push(`${monster.name}：最大追踪距离不能小于视野距离`);
+      if (!monster.vision || typeof monster.vision !== 'object') errors.push(`${monster.name}：缺少视野配置`);
+      else {
+        ['range', 'angle'].forEach((key) => {
+          if (!isFiniteNumber(monster.vision[key]) || monster.vision[key] < 0) errors.push(`${monster.name}：vision.${key} 必须是非负数`);
+        });
+        if (monster.vision.angle > 360) errors.push(`${monster.name}：视野角度不能超过 360`);
+        ['enabled', 'rotateWhenIdle', 'canRotateBeforeMove', 'canDetectAfterMove'].forEach((key) => {
+          if (typeof monster.vision[key] !== 'boolean') errors.push(`${monster.name}：vision.${key} 必须是布尔值`);
+        });
+      }
       const spawn = monster.spawnConfig;
       if (spawn?.enabled) {
         ['intervalTurns', 'initialDelayTurns', 'maxAliveChildren', 'spawnRadiusMin', 'spawnRadiusMax'].forEach((key) => {
