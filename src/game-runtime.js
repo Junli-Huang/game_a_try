@@ -1,6 +1,15 @@
 import { MapEventService } from './systems/map-event-service.js';
 import { createExpeditionSeed, createSeededRandom, generateRandomPlacements } from './systems/map-generation.js';
 import {
+  canEnemySeePlayer,
+  directionFromDelta,
+  directionToward,
+  getVisionCells,
+  hasLineOfSight,
+  rotateDirection,
+  stableDirection
+} from './systems/grid-vision.js';
+import {
   addMonsterMeat,
   applyEnvironmentalPollution,
   consumeLeastCorruptedMeat,
@@ -130,6 +139,8 @@ export class GridExplorationRuntime {
           homeX: position.x, homeY: position.y, health: config.health,
           state: config.canWander ? 'Wander' : 'Idle', cooldownTurns: 0,
           alertTurns: 0, intent: null, spawnedByMonsterId: null,
+          facing: stableDirection(`${this.seed}:${config.id}:${position.x},${position.y}`),
+          lastSeenPlayerPosition: null,
           spawnTurnsLeft: config.spawnConfig?.initialDelayTurns ?? 0, spawnedTotal: 0
         };
         monsters.push(monster);
@@ -158,7 +169,11 @@ export class GridExplorationRuntime {
     const monster = this.monsterAt(x, y);
     const corpse = this.corpseAt(x, y);
     return {
-      enemy: monster ? { id: monster.id, name: monster.config.name, color: monster.config.color, state: monster.state, isSpawner: Boolean(monster.config.spawnConfig?.enabled) } : null,
+      enemy: monster ? {
+        id: monster.id, name: monster.config.name, color: monster.config.color, state: monster.state,
+        facing: monster.facing, visionEnabled: Boolean(monster.config.vision?.enabled),
+        isSpawner: Boolean(monster.config.spawnConfig?.enabled)
+      } : null,
       corpse: corpse ? { id: corpse.id, name: corpse.config.name, harvested: corpse.harvested } : null,
       extract: this.extractionAt(x, y)
     };
@@ -172,7 +187,9 @@ export class GridExplorationRuntime {
     this.tiles.forEach((tile) => {
       if (tile.visibility === 'visible') tile.visibility = 'explored';
       const dx = Math.abs(tile.x - this.player.x), dy = Math.abs(tile.y - this.player.y);
-      const visible = !fog.enabled || (fog.shape === 'manhattan' ? dx + dy <= fog.visionRadius : Math.max(dx, dy) <= fog.visionRadius);
+      const inRange = fog.shape === 'manhattan' ? dx + dy <= fog.visionRadius : Math.max(dx, dy) <= fog.visionRadius;
+      const visible = !fog.enabled || (inRange && (!fog.terrainBlocksVision
+        || hasLineOfSight(this.player, tile, (x, y) => !this.tileAt(x, y)?.walkable)));
       if (visible) {
         tile.visibility = 'visible';
         tile.rememberedContent = clone(this.contentAt(tile.x, tile.y));
@@ -428,6 +445,10 @@ export class GridExplorationRuntime {
         return {
           ...item,
           config,
+          facing: item.facing || (item.lastMove
+            ? directionFromDelta(item.lastMove.x || 0, item.lastMove.y || 0)
+            : stableDirection(`${snapshot.seed ?? this.seed}:${item.id}:${item.x},${item.y}`)),
+          lastSeenPlayerPosition: item.lastSeenPlayerPosition || null,
           spawnTurnsLeft: item.spawnTurnsLeft ?? config?.spawnConfig?.initialDelayTurns ?? 0,
           spawnedTotal: item.spawnedTotal ?? 0
         };
@@ -461,7 +482,9 @@ export class GridExplorationRuntime {
   updateMonster(monster) {
     const cfg = monster.config;
     monster.intent = null;
-    if (cfg.spawnConfig?.enabled) return;
+    if (monster.health <= 0 || cfg.spawnConfig?.enabled) return;
+    monster.facing ||= stableDirection(`${this.seed}:${monster.id}:${monster.x},${monster.y}`);
+    this.orientMonsterForState(monster);
     if (monster.cooldownTurns > 0) {
       monster.cooldownTurns -= 1;
       if (monster.cooldownTurns === 0) monster.state = cfg.canWander ? 'Wander' : 'Idle';
@@ -469,8 +492,9 @@ export class GridExplorationRuntime {
     }
     const playerDistance = manhattan(monster, this.player);
     const homeDistance = manhattan(monster, { x: monster.homeX, y: monster.homeY });
-    const detectRadius = cfg.detectRadius ?? cfg.detectRange;
-    if (cfg.hostile && cfg.canChase && playerDistance <= detectRadius && homeDistance <= cfg.maxHomeDistance && !['Alert', 'Chase', 'AttackIntent'].includes(monster.state)) {
+    const seesPlayer = this.monsterSeesPlayer(monster);
+    if (seesPlayer) monster.lastSeenPlayerPosition = { x: this.player.x, y: this.player.y };
+    if (cfg.hostile && cfg.canChase && seesPlayer && homeDistance <= cfg.maxHomeDistance && !['Alert', 'Chase', 'AttackIntent'].includes(monster.state)) {
       monster.state = 'Alert';
       monster.alertTurns = Math.max(1, cfg.alertDuration || 1);
       this.notify('alert', monster, '附近的怪物似乎察觉到了你的存在。');
@@ -487,13 +511,15 @@ export class GridExplorationRuntime {
     const random = this.random || Math.random;
     if (!cfg.canMove || random() > cfg.actionChance) return;
     let target = null;
-    if (['Chase', 'AttackIntent'].includes(monster.state)) target = this.bestStepToward(monster, this.player);
+    if (['Chase', 'AttackIntent'].includes(monster.state)) target = this.bestStepToward(monster, monster.lastSeenPlayerPosition || this.player);
     else if (monster.state === 'Return') {
       target = this.bestStepToward(monster, { x: monster.homeX, y: monster.homeY });
       if (homeDistance === 0) monster.state = cfg.canWander ? 'Wander' : 'Idle';
     } else if (cfg.canWander) {
       monster.state = 'Wander';
-      const choices = this.neighbors(monster.x, monster.y).filter((tile) => manhattan(tile, { x: monster.homeX, y: monster.homeY }) <= cfg.wanderRadius);
+      const choices = this.neighbors(monster.x, monster.y).filter((tile) =>
+        manhattan(tile, { x: monster.homeX, y: monster.homeY }) <= cfg.wanderRadius
+        && (tile.x !== this.player.x || tile.y !== this.player.y));
       target = choices[Math.floor(random() * choices.length)];
     }
     if (!target) return;
@@ -506,7 +532,51 @@ export class GridExplorationRuntime {
       }
       return this.startBattle(monster, 'enemy');
     }
-    if (!this.monsterAt(target.x, target.y)) { monster.x = target.x; monster.y = target.y; }
+    if (!this.monsterAt(target.x, target.y)) {
+      const previous = { x: monster.x, y: monster.y };
+      monster.x = target.x; monster.y = target.y;
+      monster.lastMove = { x: target.x - previous.x, y: target.y - previous.y };
+      monster.facing = directionFromDelta(monster.lastMove.x, monster.lastMove.y, monster.facing);
+      if (cfg.vision?.canDetectAfterMove && this.monsterSeesPlayer(monster)) {
+        monster.lastSeenPlayerPosition = { x: this.player.x, y: this.player.y };
+        if (cfg.hostile && cfg.canChase && !['Alert', 'Chase', 'AttackIntent'].includes(monster.state)) {
+          monster.state = 'Alert';
+          monster.alertTurns = Math.max(1, cfg.alertDuration || 1);
+          this.notify('alert', monster, '附近的怪物似乎察觉到了你的存在。');
+        }
+      }
+    }
+  }
+
+  monsterSeesPlayer(monster) {
+    return canEnemySeePlayer(monster, this.player, {
+      width: this.mapConfig.width,
+      height: this.mapConfig.height,
+      tileAt: (x, y) => this.tileAt(x, y)
+    });
+  }
+
+  orientMonsterForState(monster) {
+    const cfg = monster.config;
+    if (!cfg.vision?.enabled || !cfg.vision.canRotateBeforeMove) return;
+    if (['Alert', 'Cooldown'].includes(monster.state) && monster.lastSeenPlayerPosition) {
+      monster.facing = directionToward(monster, monster.lastSeenPlayerPosition, monster.facing);
+      return;
+    }
+    if (['Chase', 'AttackIntent'].includes(monster.state)) {
+      monster.facing = directionToward(monster, monster.lastSeenPlayerPosition || this.player, monster.facing);
+      return;
+    }
+    if (monster.state === 'Return') {
+      const step = this.bestStepToward(monster, { x: monster.homeX, y: monster.homeY });
+      if (step) monster.facing = directionToward(monster, step, monster.facing);
+      return;
+    }
+    if ((monster.state === 'Idle' || monster.state === 'Wander') && cfg.vision.rotateWhenIdle) {
+      const random = this.random || Math.random;
+      const turn = ['left', 'keep', 'right'][Math.floor(random() * 3)];
+      monster.facing = rotateDirection(monster.facing, turn);
+    }
   }
 
   updateSpawners() {
@@ -529,6 +599,8 @@ export class GridExplorationRuntime {
         x: position.x, y: position.y, homeX: cfg.childHomeLinkedToSpawner ? spawner.x : position.x,
         homeY: cfg.childHomeLinkedToSpawner ? spawner.y : position.y, health: childConfig.health,
         state: childConfig.canWander ? 'Wander' : 'Idle', cooldownTurns: 0, alertTurns: 0, intent: null,
+        facing: stableDirection(`${this.seed}:${childConfig.id}:${position.x},${position.y}:${spawner.spawnedTotal}`),
+        lastSeenPlayerPosition: null,
         spawnedByMonsterId: spawner.id, spawnTurnsLeft: childConfig.spawnConfig?.initialDelayTurns ?? 0, spawnedTotal: 0
       };
       this.monsters.push(child);
@@ -815,6 +887,7 @@ export class GridExplorationRuntime {
     const ctx = this.ctx, size = this.tileSize, fog = this.mapConfig.fogOfWar;
     ctx.fillStyle = '#080d0c'; ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
     const camera = this.getCamera();
+    const visionOverlay = this.getVisibleEnemyVision();
     this.tiles.filter((tile) => tile.x >= camera.x && tile.y >= camera.y && tile.x < camera.x + this.viewWidth && tile.y < camera.y + this.viewHeight).forEach((tile) => {
       const px = (tile.x - camera.x) * size, py = (tile.y - camera.y) * size;
       if (tile.visibility === 'unexplored') {
@@ -822,6 +895,14 @@ export class GridExplorationRuntime {
       }
       ctx.fillStyle = tile.walkable ? '#2a4037' : '#182521'; ctx.fillRect(px, py, size, size);
       ctx.strokeStyle = '#49605744'; ctx.strokeRect(px + .5, py + .5, size - 1, size - 1);
+      const danger = visionOverlay.get(keyOf(tile.x, tile.y));
+      if (danger) {
+        ctx.fillStyle = danger === 'danger' ? 'rgba(213,104,120,.30)'
+          : danger === 'alert' ? 'rgba(229,166,92,.25)'
+            : danger === 'cooldown' ? 'rgba(229,208,120,.11)'
+              : 'rgba(229,208,120,.17)';
+        ctx.fillRect(px + 1, py + 1, size - 2, size - 2);
+      }
       const content = tile.visibility === 'visible' ? this.contentAt(tile.x, tile.y) : tile.rememberedContent;
       const memory = tile.visibility === 'explored';
       if (content?.extract) this.drawExtract(px, py, size, memory);
@@ -845,6 +926,11 @@ export class GridExplorationRuntime {
       }
       ctx.closePath(); ctx.fill();
     } else { ctx.arc(px + size / 2, py + size / 2, size * .25, 0, Math.PI * 2); ctx.fill(); }
+    if (!memory && enemy.visionEnabled && !enemy.isSpawner) {
+      const arrows = { north: '▲', east: '▶', south: '▼', west: '◀' };
+      ctx.fillStyle = '#f4ecd4'; ctx.font = `700 ${size * .24}px sans-serif`; ctx.textAlign = 'center';
+      ctx.fillText(arrows[enemy.facing] || '▼', px + size * .78, py + size * .82);
+    }
     if (!memory && ['Alert', 'Chase', 'AttackIntent'].includes(enemy.state)) {
       ctx.fillStyle = enemy.state === 'AttackIntent' ? '#ff5f5f' : '#f5d078';
       ctx.font = `700 ${size * .42}px sans-serif`; ctx.textAlign = 'center';
@@ -852,6 +938,30 @@ export class GridExplorationRuntime {
     }
     if (memory) { ctx.fillStyle = '#e5d5a1'; ctx.font = `${size * .35}px serif`; ctx.textAlign = 'center'; ctx.fillText('?', px + size * .75, py + size * .35); }
     ctx.restore();
+  }
+
+  getVisibleEnemyVision() {
+    const result = new Map();
+    if (this.config.ui.showEnemyVision === false) return result;
+    const map = {
+      width: this.mapConfig.width,
+      height: this.mapConfig.height,
+      tileAt: (x, y) => this.tileAt(x, y)
+    };
+    for (const monster of this.monsters) {
+      if (monster.health <= 0 || monster.config.spawnConfig?.enabled || !monster.config.vision?.enabled) continue;
+      if (this.tileAt(monster.x, monster.y)?.visibility !== 'visible') continue;
+      const tone = ['Chase', 'AttackIntent'].includes(monster.state) ? 'danger'
+        : monster.state === 'Alert' ? 'alert'
+          : monster.state === 'Cooldown' ? 'cooldown'
+            : 'normal';
+      for (const cell of getVisionCells(monster, monster.facing, monster.config.vision, map)) {
+        if (this.tileAt(cell.x, cell.y)?.visibility === 'unexplored') continue;
+        const key = keyOf(cell.x, cell.y);
+        if (!result.has(key) || tone === 'danger') result.set(key, tone);
+      }
+    }
+    return result;
   }
 
   drawCorpse(px, py, size, memory) {
