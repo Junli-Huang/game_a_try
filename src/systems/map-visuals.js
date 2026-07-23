@@ -56,6 +56,26 @@ export function fogEdgeClouds(x, y, edgeIndex = 0) {
   });
 }
 
+export function fogClearingBlobs(x, y) {
+  const primary = seededFogJitter(x, y, 41);
+  const secondary = seededFogJitter(x, y, 73);
+  const tertiary = seededFogJitter(x, y, 109);
+  return [
+    {
+      x: .5 + primary * .1,
+      y: .5 + secondary * .1,
+      radius: .76 + Math.abs(tertiary) * .16,
+      softness: .52
+    },
+    {
+      x: .5 - secondary * .16,
+      y: .5 + tertiary * .16,
+      radius: .48 + Math.abs(primary) * .12,
+      softness: .42
+    }
+  ];
+}
+
 export function shouldDrawGridEdge(tile, neighbor) {
   return !(tile && neighbor && !tile.walkable && !neighbor.walkable);
 }
