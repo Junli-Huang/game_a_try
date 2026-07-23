@@ -1,4 +1,4 @@
-# 雾下余粮（Tiny Signal V1.3.4）
+# 雾下余粮（Tiny Signal V1.3.5）
 
 一个轻量化的“搜打撤 + 资源管理”H5 游戏 Demo。
 
@@ -29,6 +29,7 @@
 - 随机事件：8 个数据驱动事件，包含选择、条件与即时结果
 - 疯狂表现：阶段文案、低语、边缘效果、脉动及减少动态效果
 - 音频：22 个确定性生成的低保真 WAV 音效，支持缓存、冷却、变体、静音、音量和加载失败合成回退
+- 视觉：弱化格线的潮湿地表、连续弧形敌人视野、贴身朝向指针与不规则柔化战争迷雾
 
 ## 操作
 
@@ -64,6 +65,8 @@ V1.3.2 的疯狂抗性、圣遗物与怪物肉净化规则见 [`docs/design/v1.3
 V1.3.3 的敌人朝向、扇形视野、障碍遮挡与观察规则见 [`docs/design/v1.3.3-enemy-directional-vision.md`](./docs/design/v1.3.3-enemy-directional-vision.md)。
 
 V1.3.4 的程序化音效资源、事件映射与浏览器兼容规则见 [`docs/design/v1.3.4-generated-sfx.md`](./docs/design/v1.3.4-generated-sfx.md)。
+
+V1.3.5 的地图视觉重构规则见 [`docs/design/v1.3.5-visual-rework.md`](./docs/design/v1.3.5-visual-rework.md)。
 
 ## 本地开发
 
