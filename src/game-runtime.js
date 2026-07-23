@@ -34,6 +34,8 @@ export class GridExplorationRuntime {
     this.environmentElapsedMs = 0;
     this.lastEnvironmentTickAt = null;
     this.environmentTimer = null;
+    this.resistanceDepletedNotified = false;
+    this.pageHidden = false;
     this.sceneMadness = 0;
     this.boundKeyDown = (event) => this.onKeyDown(event);
     this.boundClick = (event) => this.onCanvasClick(event);
@@ -83,6 +85,22 @@ export class GridExplorationRuntime {
     this.environmentTimer = null;
     removeEventListener('keydown', this.boundKeyDown);
     this.canvas.removeEventListener('click', this.boundClick);
+  }
+
+  setPageHidden(hidden, now = Date.now()) {
+    if (!this.running) return;
+    if (hidden) {
+      const elapsed = this.lastEnvironmentTickAt ? Math.max(0, now - this.lastEnvironmentTickAt) : 0;
+      if (elapsed > 0) this.advanceEnvironmentTime(elapsed, false);
+      this.pageHidden = true;
+      this.lastEnvironmentTickAt = null;
+      clearInterval(this.environmentTimer);
+      this.environmentTimer = null;
+      this.persistExpedition();
+      return;
+    }
+    this.pageHidden = false;
+    this.resumeEnvironmentClock(now);
   }
 
   createTiles() {
@@ -324,22 +342,20 @@ export class GridExplorationRuntime {
   }
 
   resumeEnvironmentClock(now = Date.now()) {
-    const previous = this.lastEnvironmentTickAt;
     this.lastEnvironmentTickAt = now;
-    if (previous && now > previous) this.advanceEnvironmentTime(now - previous, false);
     clearInterval(this.environmentTimer);
     this.environmentTimer = setInterval(() => {
       const current = Date.now();
       const elapsed = current - this.lastEnvironmentTickAt;
       this.lastEnvironmentTickAt = current;
-      if (!this.running || this.inputPaused || this.mode !== 'OUTDOOR_EXPLORATION') return;
+      if (!this.running || this.inputPaused || this.pageHidden || this.mode !== 'OUTDOOR_EXPLORATION') return;
       this.advanceEnvironmentTime(elapsed);
     }, 250);
   }
 
   advanceEnvironmentTime(elapsedMs, persist = true) {
     const rules = this.mapConfig.environmentMadness;
-    if (!this.running || this.inputPaused || this.mode !== 'OUTDOOR_EXPLORATION' || !rules?.enabled) return 0;
+    if (!this.running || this.inputPaused || this.pageHidden || this.mode !== 'OUTDOOR_EXPLORATION' || !rules?.enabled) return 0;
     const intervalMs = Math.max(1, rules.intervalSeconds * 1000);
     this.environmentElapsedMs += Math.max(0, elapsedMs || 0);
     const settlements = Math.floor(this.environmentElapsedMs / intervalMs);
@@ -349,14 +365,20 @@ export class GridExplorationRuntime {
     }
     this.environmentElapsedMs -= settlements * intervalMs;
     const beforeMadness = this.player.madness;
+    const beforeResistance = this.player.madnessResistance;
     const result = applyEnvironmentalPollution(this.player, rules.amount * settlements, this.config.global.maxMadness);
     const blocked = result.blocked;
     const overflow = result.overflow;
     this.save.highestMadness = Math.max(this.save.highestMadness || 0, this.player.madness);
     if (this.player.madness !== beforeMadness) this.callbacks.onMadnessChange?.(beforeMadness, this.player.madness);
-    this.setMessage(overflow > 0
-      ? `雾蚀穿透抗性：疯狂 +${Math.round(overflow * 100) / 100}。`
-      : `雾蚀被疯狂抗性抵消：抗性 -${Math.round(blocked * 100) / 100}。`);
+    if (!this.resistanceDepletedNotified && this.player.madnessResistance <= 0 && (beforeResistance > 0 || overflow > 0)) {
+      this.resistanceDepletedNotified = true;
+      this.setMessage('疯狂抗性已经耗尽，环境污染开始侵蚀你的精神。');
+    } else {
+      this.setMessage(overflow > 0
+        ? `雾蚀穿透抗性：疯狂 +${Math.round(overflow * 100) / 100}。`
+        : `雾蚀被疯狂抗性抵消：抗性 -${Math.round(blocked * 100) / 100}。`);
+    }
     if (persist) {
       this.persistExpedition();
       this.render();
@@ -373,7 +395,10 @@ export class GridExplorationRuntime {
       corpses: this.corpses.map((item) => ({ ...item, configId: item.config.id, config: undefined })),
       visitedTiles: [...this.visitedTiles],
       seenSpawnerIds: [...(this.seenSpawnerIds || [])],
-      environmentMadness: { elapsedMs: this.environmentElapsedMs, lastUpdatedAt: this.lastEnvironmentTickAt || Date.now() },
+      environmentMadness: {
+        elapsedMs: this.environmentElapsedMs,
+        resistanceDepletedNotified: this.resistanceDepletedNotified
+      },
       sceneMadness: this.sceneMadness,
       randomState: this.random?.getState?.(),
       mapEventState: this.eventService ? {
@@ -394,7 +419,8 @@ export class GridExplorationRuntime {
     this.player.loot.monsterMeat = normalizeMonsterMeat(this.player.loot.monsterMeat, this.config.monsterMeat.maxMadness, 'restored-outdoor-meat');
     this.player.madnessResistance ??= this.save.madnessResistance ?? this.config.player.initialMadnessResistance;
     this.environmentElapsedMs = snapshot.environmentMadness?.elapsedMs || 0;
-    this.lastEnvironmentTickAt = snapshot.environmentMadness?.lastUpdatedAt || Date.now();
+    this.resistanceDepletedNotified = Boolean(snapshot.environmentMadness?.resistanceDepletedNotified);
+    this.lastEnvironmentTickAt = Date.now();
     this.sceneMadness = snapshot.sceneMadness || 0;
     if (Array.isArray(snapshot.monsters)) {
       this.monsters = snapshot.monsters.map((item) => {
@@ -715,7 +741,14 @@ export class GridExplorationRuntime {
     return {
       round: this.battle.round, initiator: this.battle.initiator,
       phase: this.battle.playerTurn ? 'player' : 'enemy',
-      player: { health: Math.round(this.player.health), maxHealth: this.config.global.maxHealth, hunger: Math.round(this.player.hunger), madness: Math.round(this.player.madness * 100) / 100, madnessResistance: Math.round(this.player.madnessResistance * 100) / 100, attack: this.getAttackDamage(), speed: this.config.player.speed, meat: this.player.loot.monsterMeat.length },
+      player: {
+        health: Math.round(this.player.health), maxHealth: this.config.global.maxHealth,
+        hunger: Math.round(this.player.hunger), madness: Math.round(this.player.madness * 100) / 100,
+        madnessResistance: Math.round(this.player.madnessResistance * 100) / 100,
+        attack: this.getAttackDamage(), speed: this.config.player.speed,
+        meat: this.player.loot.monsterMeat.length,
+        meatMadness: this.player.loot.monsterMeat.length ? Math.min(...this.player.loot.monsterMeat.map((meat) => meat.currentMadness)) : 0
+      },
       enemy: { name: this.battle.monster.config.name, health: this.battle.monster.health, maxHealth: this.battle.monster.config.health, attack: this.battle.monster.config.attack, speed: this.battle.monster.config.speed, color: this.battle.monster.config.color },
       actions: this.config.battle.playerActions,
       log: this.battle.log.slice(-5)

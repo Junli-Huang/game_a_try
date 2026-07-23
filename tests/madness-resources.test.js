@@ -5,8 +5,9 @@ import { createInitialSave, loadSave, SAVE_STORAGE_KEY } from '../src/config/con
 import { GridExplorationRuntime } from '../src/game-runtime.js';
 import {
   applyEnvironmentalPollution,
+  getMeatPurificationPreview,
   normalizeMonsterMeat,
-  purifyNextMonsterMeat,
+  purifyMonsterMeat,
   restoreResistance
 } from '../src/systems/madness-resources.js';
 
@@ -91,6 +92,7 @@ test('environment timer progress survives an expedition snapshot', () => {
   runtime.seed = 'pollution-snapshot';
   runtime.random = { getState: () => 1 };
   runtime.environmentElapsedMs = 4500;
+  runtime.resistanceDepletedNotified = true;
   runtime.lastEnvironmentTickAt = 1000;
   runtime.eventService = null;
   runtime.callbacks.onSave = () => {};
@@ -100,6 +102,7 @@ test('environment timer progress survives an expedition snapshot', () => {
   restored.save = runtime.save;
   restored.restoreExpedition();
   assert.equal(restored.environmentElapsedMs, 4500);
+  assert.equal(restored.resistanceDepletedNotified, true);
   assert.equal(restored.advanceEnvironmentTime(500), 1);
   assert.equal(restored.player.madnessResistance, 9.9);
 });
@@ -111,14 +114,15 @@ test('relic transfers purification one-to-one to resistance and supports partial
     relic: { currentPurification: 8, maxPurification: 100 },
     monsterMeat: normalizeMonsterMeat(1, 12)
   };
-  assert.equal(restoreResistance(save), 6);
+  assert.deepEqual(restoreResistance(save, 1), { restored: 6, cost: 6 });
   assert.equal(save.madnessResistance, 10);
   assert.equal(save.relic.currentPurification, 2);
-  const result = purifyNextMonsterMeat(save);
-  assert.equal(result.transferred, 2);
+  const result = purifyMonsterMeat(save, save.monsterMeat[0].id, 1);
+  assert.equal(result.purified, 2);
+  assert.equal(result.cost, 2);
   assert.equal(result.meat.currentMadness, 10);
   assert.equal(save.relic.currentPurification, 0);
-  assert.equal(purifyNextMonsterMeat(save).transferred, 0);
+  assert.equal(purifyMonsterMeat(save, save.monsterMeat[0].id, 1).purified, 0);
 });
 
 test('fully purified meat is skipped and cannot consume purification twice', () => {
@@ -129,12 +133,52 @@ test('fully purified meat is skipped and cannot consume purification twice', () 
       { id: 'dirty', currentMadness: 12, maxMadness: 12 }
     ]
   };
-  const result = purifyNextMonsterMeat(save);
+  const result = purifyMonsterMeat(save, 'dirty', 1);
   assert.equal(result.meat.id, 'dirty');
-  assert.equal(result.transferred, 12);
+  assert.equal(result.purified, 12);
   assert.equal(save.relic.currentPurification, 8);
-  assert.equal(purifyNextMonsterMeat(save).transferred, 0);
+  assert.equal(purifyMonsterMeat(save, 'already-clean', 1).purified, 0);
   assert.equal(save.relic.currentPurification, 8);
+});
+
+test('relic cost multipliers support partial transfer, exact targeting, and zero-cost rules', () => {
+  const save = {
+    madnessResistance: 2,
+    maxMadnessResistance: 10,
+    relic: { currentPurification: 3, maxPurification: 100 },
+    monsterMeat: [
+      { id: 'first', currentMadness: 8, maxMadness: 12 },
+      { id: 'selected', currentMadness: 5, maxMadness: 12 }
+    ]
+  };
+  assert.deepEqual(restoreResistance(save, 2), { restored: 1.5, cost: 3 });
+  assert.equal(save.madnessResistance, 3.5);
+  save.relic.currentPurification = 3;
+  const result = purifyMonsterMeat(save, 'selected', 2);
+  assert.deepEqual({ purified: result.purified, cost: result.cost }, { purified: 1.5, cost: 3 });
+  assert.equal(save.monsterMeat[0].currentMadness, 8);
+  assert.equal(save.monsterMeat[1].currentMadness, 3.5);
+  save.relic.currentPurification = 0;
+  assert.deepEqual(getMeatPurificationPreview(save.monsterMeat[1], 0, 0), { purified: 3.5, cost: 0, complete: true });
+  assert.equal(purifyMonsterMeat(save, 'selected', 0).meat.currentMadness, 0);
+});
+
+test('environment depletion warning persists once and hidden time does not advance pollution', () => {
+  const runtime = runtimeForPollution();
+  runtime.player.madnessResistance = 0.1;
+  runtime.advanceEnvironmentTime(5000);
+  assert.equal(runtime.resistanceDepletedNotified, true);
+  assert.match(runtime.message, /疯狂抗性已经耗尽/);
+  runtime.advanceEnvironmentTime(5000);
+  assert.doesNotMatch(runtime.message, /疯狂抗性已经耗尽/);
+
+  runtime.environmentElapsedMs = 4500;
+  runtime.lastEnvironmentTickAt = 1000;
+  runtime.setPageHidden(true, 1200);
+  assert.equal(runtime.environmentElapsedMs, 4700);
+  runtime.setPageHidden(false, 10000);
+  assert.equal(runtime.environmentElapsedMs, 4700);
+  clearInterval(runtime.environmentTimer);
 });
 
 test('extraction preserves meat pollution while failed expeditions discard carried meat', () => {

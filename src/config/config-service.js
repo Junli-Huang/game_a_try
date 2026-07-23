@@ -98,6 +98,12 @@ export class ConfigService {
       if (!isFiniteNumber(config.relic[key]) || config.relic[key] < 0) errors.push(`relic.${key} 必须是非负数`);
     });
     if (config.relic.initialPurification > config.relic.maxPurification) errors.push('relic.initialPurification 不能超过最大净化值');
+    ['resistanceRestoreCostMultiplier', 'meatPurificationCostMultiplier'].forEach((key) => {
+      if (!isFiniteNumber(config.relic[key]) || config.relic[key] < 0) errors.push(`relic.${key} 必须是非负数`);
+    });
+    ['enabled', 'protectsShelter'].forEach((key) => {
+      if (typeof config.relic[key] !== 'boolean') errors.push(`relic.${key} 必须是布尔值`);
+    });
 
     const uniqueIds = (items, label) => {
       const ids = new Set();

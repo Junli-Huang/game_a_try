@@ -60,7 +60,19 @@ test('legacy config gains V1.3.2 resistance, relic, meat, and environment settin
   assert.equal(migrated.player.initialMadnessResistance, 10);
   assert.equal(migrated.monsterMeat.maxMadness, 12);
   assert.equal(migrated.relic.maxPurification, 100);
+  assert.equal(migrated.relic.enabled, true);
+  assert.equal(migrated.relic.protectsShelter, true);
+  assert.equal(migrated.relic.resistanceRestoreCostMultiplier, 1);
+  assert.equal(migrated.relic.meatPurificationCostMultiplier, 1);
   assert.deepEqual(migrated.maps[0].environmentMadness, { enabled: true, amount: 0.1, intervalSeconds: 5 });
+});
+
+test('relic configuration rejects negative cost multipliers', () => {
+  const config = service.loadDefaultConfig();
+  config.relic.meatPurificationCostMultiplier = -1;
+  const result = service.validateConfig(config);
+  assert.equal(result.valid, false);
+  assert.ok(result.errors.some((error) => error.includes('meatPurificationCostMultiplier')));
 });
 
 test('V1.2 config migration adds V1.3 fields without changing fixed placements', () => {

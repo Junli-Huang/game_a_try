@@ -77,7 +77,15 @@ export const DEFAULT_CONFIG = {
     { id: 'monster_meat', name: '异变肉块', type: 'corrupted', healthRestore: 10, hungerRestore: 26, madnessGain: 12, allowOutdoor: true, allowShelter: true, maxStack: 20 }
   ],
   monsterMeat: { maxMadness: 12 },
-  relic: { name: '静默圣遗物', maxPurification: 100, initialPurification: 100 },
+  relic: {
+    name: '静默圣遗物',
+    enabled: true,
+    maxPurification: 100,
+    initialPurification: 100,
+    resistanceRestoreCostMultiplier: 1,
+    meatPurificationCostMultiplier: 1,
+    protectsShelter: true
+  },
   madnessStages: [
     { min: 0, max: 29, attackMultiplier: 1, state: '清醒', effectIntensity: 0 },
     { min: 30, max: 59, attackMultiplier: 1.15, state: '低语', effectIntensity: 0.25 },

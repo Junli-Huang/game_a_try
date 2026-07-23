@@ -45,25 +45,45 @@ export function consumeLeastCorruptedMeat(collection) {
   return { meat, remaining };
 }
 
-export function restoreResistance(save) {
+export function restoreResistance(save, costMultiplier = 1) {
   const missing = Math.max(0, (save.maxMadnessResistance || 0) - (save.madnessResistance || 0));
   const available = Math.max(0, save.relic?.currentPurification || 0);
-  const transferred = round(Math.min(missing, available));
-  save.madnessResistance = round((save.madnessResistance || 0) + transferred);
-  save.relic.currentPurification = round(available - transferred);
-  return transferred;
+  const multiplier = Math.max(0, Number(costMultiplier) || 0);
+  const restored = round(multiplier === 0 ? missing : Math.min(missing, available / multiplier));
+  const cost = round(restored * multiplier);
+  save.madnessResistance = round((save.madnessResistance || 0) + restored);
+  save.relic.currentPurification = round(Math.max(0, available - cost));
+  return { restored, cost };
 }
 
-export function purifyNextMonsterMeat(save) {
+export function purifyMonsterMeat(save, meatId, costMultiplier = 1) {
   const available = Math.max(0, save.relic?.currentPurification || 0);
   const items = Array.isArray(save.monsterMeat) ? save.monsterMeat : [];
-  const index = items.findIndex((item) => item.currentMadness > 0);
-  if (index < 0 || available <= 0) return { transferred: 0, meat: null };
+  const index = items.findIndex((item) => item.id === meatId && item.currentMadness > 0);
+  const multiplier = Math.max(0, Number(costMultiplier) || 0);
+  if (index < 0 || (available <= 0 && multiplier > 0)) return { purified: 0, cost: 0, meat: null };
   const meat = items[index];
-  const transferred = round(Math.min(meat.currentMadness, available));
-  meat.currentMadness = round(meat.currentMadness - transferred);
-  save.relic.currentPurification = round(available - transferred);
-  return { transferred, meat };
+  const purified = round(multiplier === 0 ? meat.currentMadness : Math.min(meat.currentMadness, available / multiplier));
+  const cost = round(purified * multiplier);
+  meat.currentMadness = round(Math.max(0, meat.currentMadness - purified));
+  save.relic.currentPurification = round(Math.max(0, available - cost));
+  return { purified, cost, meat };
+}
+
+export function getResistanceRestorePreview(save, costMultiplier = 1) {
+  const missing = Math.max(0, (save.maxMadnessResistance || 0) - (save.madnessResistance || 0));
+  const available = Math.max(0, save.relic?.currentPurification || 0);
+  const multiplier = Math.max(0, Number(costMultiplier) || 0);
+  const restored = round(multiplier === 0 ? missing : Math.min(missing, available / multiplier));
+  return { restored, cost: round(restored * multiplier) };
+}
+
+export function getMeatPurificationPreview(meat, availablePower, costMultiplier = 1) {
+  const pollution = Math.max(0, Number(meat?.currentMadness) || 0);
+  const available = Math.max(0, Number(availablePower) || 0);
+  const multiplier = Math.max(0, Number(costMultiplier) || 0);
+  const purified = round(multiplier === 0 ? pollution : Math.min(pollution, available / multiplier));
+  return { purified, cost: round(purified * multiplier), complete: purified >= pollution && pollution > 0 };
 }
 
 export function applyEnvironmentalPollution(player, amount, maxMadness) {

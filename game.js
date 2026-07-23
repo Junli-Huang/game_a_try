@@ -5,7 +5,14 @@ import { MadnessPresentationService } from './src/systems/madness-presentation.j
 import { AudioService } from './src/systems/audio-service.js';
 import { trimMapToBounds } from './src/systems/map-generation.js';
 import { TutorialService } from './src/systems/tutorial-service.js';
-import { consumeLeastCorruptedMeat, formatResource, purifyNextMonsterMeat, restoreResistance } from './src/systems/madness-resources.js';
+import {
+  consumeLeastCorruptedMeat,
+  formatResource,
+  getMeatPurificationPreview,
+  getResistanceRestorePreview,
+  purifyMonsterMeat,
+  restoreResistance
+} from './src/systems/madness-resources.js';
 
 const app = document.querySelector('#app');
 const fileInput = document.querySelector('#config-file');
@@ -27,6 +34,7 @@ let mapEditorSelection = null;
 let mapAreaAnchor = null;
 const mapEditorHistory = { undo: [], redo: [] };
 addEventListener('pointerdown', () => audioService.unlock(), { once: true });
+document.addEventListener('visibilitychange', () => runtime?.setPageHidden(document.hidden));
 
 const labels = {
   global: '全局规则', player: '玩家', monsters: '怪物', foods: '食物', monsterMeat: '怪物肉', relic: '圣遗物', madnessStages: '疯狂阶段',
@@ -70,11 +78,12 @@ const labels = {
   maxAliveChildren: '存活子怪上限', maxTotalChildren: '总产出上限', spawnRadiusMin: '最小产出半径', spawnRadiusMax: '最大产出半径',
   spawnOnVisibleTile: '允许在视野内产出', requireWalkableTile: '要求可通行格', childHomeLinkedToSpawner: '子怪以巢穴为 Home',
   maxMadnessResistance: '最大疯狂抗性', initialMadnessResistance: '初始疯狂抗性', environmentMadness: '环境污染',
-  amount: '每次污染值', intervalSeconds: '污染间隔（秒）', maxMadness: '最大疯狂值', maxPurification: '最大净化值', initialPurification: '初始净化值'
+  amount: '每次污染值', intervalSeconds: '污染间隔（秒）', maxMadness: '最大疯狂值', maxPurification: '最大净化值', initialPurification: '初始净化值',
+  resistanceRestoreCostMultiplier: '抗性恢复消耗倍率', meatPurificationCostMultiplier: '肉净化消耗倍率', protectsShelter: '维持庇护屏障'
 };
 
-function button(label, action, className = '') {
-  return `<button class="${className}" data-action="${action}">${label}</button>`;
+function button(label, action, className = '', disabled = false) {
+  return `<button class="${className}" data-action="${action}" ${disabled ? 'disabled' : ''}>${label}</button>`;
 }
 
 function bindActions(root, actions) {
@@ -129,6 +138,10 @@ function renderShelter() {
   const meatCount = save.monsterMeat.length;
   const purifiedMeat = save.monsterMeat.filter((meat) => meat.currentMadness <= 0).length;
   const meatPollution = save.monsterMeat.reduce((sum, meat) => sum + meat.currentMadness, 0);
+  const lowestMeatMadness = meatCount ? Math.min(...save.monsterMeat.map((meat) => meat.currentMadness)) : 0;
+  const relicEnabled = config.relic.enabled !== false;
+  const restorePreview = getResistanceRestorePreview(save, config.relic.resistanceRestoreCostMultiplier);
+  const contaminatedMeat = save.monsterMeat.filter((meat) => meat.currentMadness > 0);
   const farmText = !save.farm.planted ? '空置' : save.farm.cyclesLeft > 0 ? `生长中 · 还需 ${save.farm.cyclesLeft} 次外出` : '可以收获';
   const result = save.lastResult ? `<div class="result ${save.lastResult.success ? 'success' : 'failure'}">${save.lastResult.success ? `上次成功撤离，带回 ${save.lastResult.meat} 份肉` : '上次外出失败，临时搜集物已丢失'}</div>` : '';
   const progress = goalService.progress(save), goal = config.demoGoal;
@@ -149,14 +162,16 @@ function renderShelter() {
         <article class="panel pantry-panel">
           <span class="panel-kicker">仓储</span><h3>食物库存</h3>
           <div class="resource"><span class="resource-icon safe"></span><div><strong>储备粮 × ${save.safeFood}</strong><small>安全，不增加疯狂</small></div>${button('食用', 'eat-safe', 'small')}</div>
-          <div class="resource"><span class="resource-icon meat"></span><div><strong>异变肉块 × ${meatCount}</strong><small>已净化 ${purifiedMeat} · 剩余污染 ${formatResource(meatPollution)}</small></div>${button('食用', 'eat-meat', 'small danger')}</div>
+          <div class="resource"><span class="resource-icon meat"></span><div><strong>异变肉块 × ${meatCount}</strong><small>已净化 ${purifiedMeat} · 剩余污染 ${formatResource(meatPollution)}</small></div>${button(`食用最低污染（疯狂 +${formatResource(lowestMeatMadness)}）`, 'eat-meat', 'small danger', meatCount <= 0)}</div>
         </article>
         <article class="panel relic-panel">
           <span class="panel-kicker">SANCTUARY RELIC</span><h3>${config.relic.name}</h3>
           <div class="relic-visual" aria-hidden="true"><i></i></div>
           <div class="stat-row"><span>净化值</span><strong>${formatResource(save.relic.currentPurification)} / ${formatResource(save.relic.maxPurification)}</strong></div>
-          <p>净化值可恢复疯狂抗性，或移除一块异变肉的污染。两种操作均按 1:1 消耗。</p>
-          <div class="relic-actions">${button('恢复疯狂抗性', 'restore-resistance', 'small primary')}${button('净化一块肉', 'purify-meat', 'small')}</div>
+          <div class="stat-row"><span>庇护屏障</span><strong>${relicEnabled && config.relic.protectsShelter ? '运行中' : '未启用'}</strong></div>
+          <div class="stat-row"><span>玩家抗性</span><strong>${formatResource(save.madnessResistance)} / ${formatResource(save.maxMadnessResistance)}</strong></div>
+          <p>${relicEnabled ? '有限净化值需要在恢复个人抗性与净化食物之间分配。庇护屏障不持续消耗净化值。' : '当前配置未启用圣遗物交互。'}</p>
+          ${relicEnabled ? `<div class="relic-actions">${button(`恢复抗性（+${formatResource(restorePreview.restored)} / 消耗 ${formatResource(restorePreview.cost)}）`, 'restore-resistance', 'small primary', restorePreview.restored <= 0)}${button(`净化怪物肉（${contaminatedMeat.length}）`, 'purify-meat', 'small', contaminatedMeat.length <= 0 || (save.relic.currentPurification <= 0 && config.relic.meatPurificationCostMultiplier > 0))}</div>` : ''}
         </article>
         <article class="panel farm-panel">
           <span class="panel-kicker">种植格</span><h3>${crop.name}</h3>
@@ -186,7 +201,7 @@ function renderShelter() {
     'eat-safe': () => eatInShelter('safe_food'),
     'eat-meat': () => eatInShelter('monster_meat'),
     'restore-resistance': restoreMadnessResistance,
-    'purify-meat': purifyMonsterMeat,
+    'purify-meat': showMonsterMeatPurification,
     plant: () => {
       if (save.safeFood < crop.seedCost) return toast('储备粮不足，无法播种');
       save.safeFood -= crop.seedCost; save.farm = { planted: true, cyclesLeft: crop.growthCycles }; persistSave(save); renderShelter();
@@ -240,18 +255,37 @@ function eatInShelter(itemId) {
 }
 
 function restoreMadnessResistance() {
-  const amount = restoreResistance(save);
-  if (amount <= 0) return toast(save.madnessResistance >= save.maxMadnessResistance ? '疯狂抗性已经恢复至上限' : '圣遗物净化值不足', true);
-  persistSave(save); renderShelter(); toast(`圣遗物转移 ${formatResource(amount)} 点净化值，疯狂抗性已恢复`);
+  if (config.relic.enabled === false) return toast('圣遗物未启用', true);
+  const result = restoreResistance(save, config.relic.resistanceRestoreCostMultiplier);
+  if (result.restored <= 0) return toast(save.madnessResistance >= save.maxMadnessResistance ? '疯狂抗性已经恢复至上限' : '圣遗物净化值不足', true);
+  persistSave(save); renderShelter(); toast(`消耗 ${formatResource(result.cost)} 点净化值，恢复 ${formatResource(result.restored)} 点疯狂抗性`);
 }
 
-function purifyMonsterMeat() {
-  const result = purifyNextMonsterMeat(save);
-  if (result.transferred <= 0) return toast(save.monsterMeat.some((meat) => meat.currentMadness > 0) ? '圣遗物净化值不足' : '没有仍受污染的异变肉', true);
-  persistSave(save); renderShelter();
+function showMonsterMeatPurification() {
+  if (config.relic.enabled === false) return toast('圣遗物未启用', true);
+  const food = config.foods.find((item) => item.id === 'monster_meat');
+  const candidates = save.monsterMeat.filter((meat) => meat.currentMadness > 0);
+  if (!candidates.length) return toast('没有仍受污染的异变肉', true);
+  const actions = candidates.map((meat, index) => {
+    const preview = getMeatPurificationPreview(meat, save.relic.currentPurification, config.relic.meatPurificationCostMultiplier);
+    const operation = preview.complete ? '完全净化' : '部分净化';
+    return {
+      label: `第 ${index + 1} 块 · 生命 +${food.healthRestore} / 饥饿 +${food.hungerRestore} / 疯狂 ${formatResource(meat.currentMadness)}→${formatResource(meat.currentMadness - preview.purified)} / ${formatResource(meat.maxMadness)} · ${operation}（消耗 ${formatResource(preview.cost)}）`,
+      disabled: preview.purified <= 0,
+      action: () => purifySelectedMonsterMeat(meat.id)
+    };
+  });
+  actions.push({ label: '取消', action: closeModal });
+  showModal('选择要净化的异变肉', `圣遗物净化值：${formatResource(save.relic.currentPurification)} / ${formatResource(save.relic.maxPurification)}\n选择一块肉确认净化；污染值和净化消耗按配置倍率结算。`, actions);
+}
+
+function purifySelectedMonsterMeat(meatId) {
+  const result = purifyMonsterMeat(save, meatId, config.relic.meatPurificationCostMultiplier);
+  if (result.purified <= 0) return toast('圣遗物净化值不足', true);
+  closeModal(); persistSave(save); renderShelter();
   toast(result.meat.currentMadness > 0
-    ? `消耗 ${formatResource(result.transferred)} 点净化值，这块肉仍有 ${formatResource(result.meat.currentMadness)} 点污染`
-    : `消耗 ${formatResource(result.transferred)} 点净化值，这块肉已完全净化`);
+    ? `消耗 ${formatResource(result.cost)} 点净化值，这块肉仍有 ${formatResource(result.meat.currentMadness)} 点污染`
+    : `消耗 ${formatResource(result.cost)} 点净化值，这块肉已完全净化`);
 }
 
 function showGoalIntro() {
@@ -481,7 +515,8 @@ function renderBattle(view, act) {
     bindMenuKeyboard();
   };
   const renderItems = () => {
-    menu.innerHTML = `<button data-battle-item="monster_meat" ${view.player.meat <= 0 ? 'disabled' : ''}>异变肉块 × ${view.player.meat}</button><button data-battle-back>返回</button>`;
+    const food = config.foods.find((item) => item.id === 'monster_meat');
+    menu.innerHTML = `<button data-battle-item="monster_meat" ${view.player.meat <= 0 ? 'disabled' : ''}>异变肉 × ${view.player.meat} · 生命 +${food.healthRestore} / 饥饿 +${food.hungerRestore} / 疯狂 +${formatResource(view.player.meatMadness)}</button><button data-battle-back>返回</button>`;
     menu.querySelector('[data-battle-item]')?.addEventListener('click', () => { audioService.playSfx('eat'); act('eat'); });
     menu.querySelector('[data-battle-back]')?.addEventListener('click', renderActions);
     bindMenuKeyboard();
