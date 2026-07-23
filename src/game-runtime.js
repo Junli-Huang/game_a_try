@@ -349,13 +349,9 @@ export class GridExplorationRuntime {
     }
     this.environmentElapsedMs -= settlements * intervalMs;
     const beforeMadness = this.player.madness;
-    let blocked = 0;
-    let overflow = 0;
-    for (let index = 0; index < settlements; index += 1) {
-      const result = applyEnvironmentalPollution(this.player, rules.amount, this.config.global.maxMadness);
-      blocked += result.blocked;
-      overflow += result.overflow;
-    }
+    const result = applyEnvironmentalPollution(this.player, rules.amount * settlements, this.config.global.maxMadness);
+    const blocked = result.blocked;
+    const overflow = result.overflow;
     this.save.highestMadness = Math.max(this.save.highestMadness || 0, this.player.madness);
     if (this.player.madness !== beforeMadness) this.callbacks.onMadnessChange?.(beforeMadness, this.player.madness);
     this.setMessage(overflow > 0
