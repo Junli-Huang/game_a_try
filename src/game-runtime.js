@@ -11,8 +11,7 @@ import {
 } from './systems/grid-vision.js';
 import {
   directionAngle,
-  exposedFogEdges,
-  fogEdgeClouds,
+  fogClearingBlobs,
   seededFogJitter,
   shouldDrawGridEdge,
   visionPalette,
@@ -1003,56 +1002,29 @@ export class GridExplorationRuntime {
     fogCtx.clearRect(0, 0, fogCanvas.width, fogCanvas.height);
     fogCtx.globalCompositeOperation = 'source-over';
     fogCtx.fillStyle = '#050807';
-    for (const tile of tiles) {
-      if (tile.visibility !== 'unexplored') continue;
-      fogCtx.fillRect((tile.x - camera.x) * size, (tile.y - camera.y) * size, size + 1, size + 1);
-    }
+    fogCtx.fillRect(0, 0, fogCanvas.width, fogCanvas.height);
 
-    // Carve deterministic rounded pockets into the tile mask first. The visible
-    // area therefore reads as one ragged clearing instead of a bright square.
+    // The clearing itself is made from overlapping soft blobs. There is no
+    // rectangular tile mask underneath, so straight square borders cannot show
+    // through even though visibility is still calculated on the grid.
     fogCtx.globalCompositeOperation = 'destination-out';
     for (const tile of tiles) {
+      if (tile.visibility === 'unexplored') continue;
       const px = (tile.x - camera.x) * size, py = (tile.y - camera.y) * size;
-      for (const [index, edge] of exposedFogEdges(tile, (x, y) => this.tileAt(x, y)).entries()) {
-        for (const cloud of fogEdgeClouds(tile.x, tile.y, index)) {
-          const horizontal = edge.side === 'north' || edge.side === 'south';
-          const outward = edge.side === 'north' || edge.side === 'west' ? -1 : 1;
-          const x = px + (horizontal ? cloud.along * size : (edge.side === 'west' ? 0 : size) + outward * cloud.depth * size);
-          const y = py + (horizontal ? (edge.side === 'north' ? 0 : size) + outward * cloud.depth * size : cloud.along * size);
-          const radius = cloud.radius * size;
-          const cut = fogCtx.createRadialGradient(x, y, radius * .18, x, y, radius);
-          cut.addColorStop(0, `rgba(0,0,0,${cloud.opacity})`);
-          cut.addColorStop(.68, `rgba(0,0,0,${cloud.opacity * .72})`);
-          cut.addColorStop(1, 'rgba(0,0,0,0)');
-          fogCtx.fillStyle = cut;
-          fogCtx.beginPath(); fogCtx.arc(x, y, radius, 0, Math.PI * 2); fogCtx.fill();
-        }
-      }
-    }
-
-    // A second, softer fringe drifts back over the clearing and hides any
-    // remaining tile cadence without changing logical visibility.
-    fogCtx.globalCompositeOperation = 'source-over';
-    for (const tile of tiles) {
-      const px = (tile.x - camera.x) * size, py = (tile.y - camera.y) * size;
-      for (const [index, edge] of exposedFogEdges(tile, (x, y) => this.tileAt(x, y)).entries()) {
-        for (const cloud of fogEdgeClouds(tile.x, tile.y, index)) {
-          const horizontal = edge.side === 'north' || edge.side === 'south';
-          const inward = edge.side === 'north' || edge.side === 'west' ? 1 : -1;
-          const x = px + (horizontal ? cloud.along * size : (edge.side === 'west' ? 0 : size) + inward * cloud.radius * size * .3);
-          const y = py + (horizontal ? (edge.side === 'north' ? 0 : size) + inward * cloud.radius * size * .3 : cloud.along * size);
-          const radius = cloud.radius * size * 1.15;
-          const wisp = fogCtx.createRadialGradient(x, y, 0, x, y, radius);
-          wisp.addColorStop(0, `rgba(3,7,6,${cloud.opacity * .38})`);
-          wisp.addColorStop(.55, `rgba(3,7,6,${cloud.opacity * .2})`);
-          wisp.addColorStop(1, 'rgba(3,7,6,0)');
-          fogCtx.fillStyle = wisp;
-          fogCtx.beginPath(); fogCtx.arc(x, y, radius, 0, Math.PI * 2); fogCtx.fill();
-        }
+      for (const blob of fogClearingBlobs(tile.x, tile.y)) {
+        const x = px + blob.x * size, y = py + blob.y * size;
+        const radius = blob.radius * size;
+        const cut = fogCtx.createRadialGradient(x, y, 0, x, y, radius);
+        cut.addColorStop(0, 'rgba(0,0,0,1)');
+        cut.addColorStop(blob.softness, 'rgba(0,0,0,.98)');
+        cut.addColorStop(.82, 'rgba(0,0,0,.72)');
+        cut.addColorStop(1, 'rgba(0,0,0,0)');
+        fogCtx.fillStyle = cut;
+        fogCtx.beginPath(); fogCtx.arc(x, y, radius, 0, Math.PI * 2); fogCtx.fill();
       }
     }
     ctx.save();
-    ctx.filter = `blur(${Math.max(1.5, size * .055)}px)`;
+    ctx.filter = `blur(${Math.max(2, size * .085)}px)`;
     ctx.drawImage(fogCanvas, 0, 0);
     ctx.restore();
   }
