@@ -12,6 +12,7 @@ import {
 import {
   directionAngle,
   exposedFogEdges,
+  fogEdgeClouds,
   seededFogJitter,
   shouldDrawGridEdge,
   visionPalette,
@@ -995,30 +996,64 @@ export class GridExplorationRuntime {
 
   drawFog(camera, tiles) {
     const ctx = this.ctx, size = this.tileSize;
-    ctx.save();
-    ctx.fillStyle = '#050807';
+    const fogCanvas = this.fogCanvas || (this.fogCanvas = document.createElement('canvas'));
+    if (fogCanvas.width !== this.canvas.width) fogCanvas.width = this.canvas.width;
+    if (fogCanvas.height !== this.canvas.height) fogCanvas.height = this.canvas.height;
+    const fogCtx = fogCanvas.getContext('2d');
+    fogCtx.clearRect(0, 0, fogCanvas.width, fogCanvas.height);
+    fogCtx.globalCompositeOperation = 'source-over';
+    fogCtx.fillStyle = '#050807';
     for (const tile of tiles) {
       if (tile.visibility !== 'unexplored') continue;
-      ctx.fillRect((tile.x - camera.x) * size, (tile.y - camera.y) * size, size + 1, size + 1);
+      fogCtx.fillRect((tile.x - camera.x) * size, (tile.y - camera.y) * size, size + 1, size + 1);
     }
-    ctx.filter = `blur(${Math.max(2, size * .13)}px)`;
+
+    // Carve deterministic rounded pockets into the tile mask first. The visible
+    // area therefore reads as one ragged clearing instead of a bright square.
+    fogCtx.globalCompositeOperation = 'destination-out';
     for (const tile of tiles) {
       const px = (tile.x - camera.x) * size, py = (tile.y - camera.y) * size;
       for (const [index, edge] of exposedFogEdges(tile, (x, y) => this.tileAt(x, y)).entries()) {
-        const jitter = seededFogJitter(tile.x, tile.y, index);
-        const radius = size * (.28 + Math.abs(jitter) * .16);
-        const positions = edge.side === 'north' || edge.side === 'south'
-          ? [[.18, jitter * .08], [.52, -jitter * .05], [.84, jitter * .06]]
-          : [[jitter * .08, .18], [-jitter * .05, .52], [jitter * .06, .84]];
-        for (const [u, v] of positions) {
-          const x = px + (edge.side === 'west' ? 0 : edge.side === 'east' ? size : u * size);
-          const y = py + (edge.side === 'north' ? 0 : edge.side === 'south' ? size : v * size);
-          const gradient = ctx.createRadialGradient(x, y, 0, x, y, radius);
-          gradient.addColorStop(0, 'rgba(3,7,6,.72)'); gradient.addColorStop(1, 'rgba(3,7,6,0)');
-          ctx.fillStyle = gradient; ctx.beginPath(); ctx.arc(x, y, radius, 0, Math.PI * 2); ctx.fill();
+        for (const cloud of fogEdgeClouds(tile.x, tile.y, index)) {
+          const horizontal = edge.side === 'north' || edge.side === 'south';
+          const outward = edge.side === 'north' || edge.side === 'west' ? -1 : 1;
+          const x = px + (horizontal ? cloud.along * size : (edge.side === 'west' ? 0 : size) + outward * cloud.depth * size);
+          const y = py + (horizontal ? (edge.side === 'north' ? 0 : size) + outward * cloud.depth * size : cloud.along * size);
+          const radius = cloud.radius * size;
+          const cut = fogCtx.createRadialGradient(x, y, radius * .18, x, y, radius);
+          cut.addColorStop(0, `rgba(0,0,0,${cloud.opacity})`);
+          cut.addColorStop(.68, `rgba(0,0,0,${cloud.opacity * .72})`);
+          cut.addColorStop(1, 'rgba(0,0,0,0)');
+          fogCtx.fillStyle = cut;
+          fogCtx.beginPath(); fogCtx.arc(x, y, radius, 0, Math.PI * 2); fogCtx.fill();
         }
       }
     }
+
+    // A second, softer fringe drifts back over the clearing and hides any
+    // remaining tile cadence without changing logical visibility.
+    fogCtx.globalCompositeOperation = 'source-over';
+    for (const tile of tiles) {
+      const px = (tile.x - camera.x) * size, py = (tile.y - camera.y) * size;
+      for (const [index, edge] of exposedFogEdges(tile, (x, y) => this.tileAt(x, y)).entries()) {
+        for (const cloud of fogEdgeClouds(tile.x, tile.y, index)) {
+          const horizontal = edge.side === 'north' || edge.side === 'south';
+          const inward = edge.side === 'north' || edge.side === 'west' ? 1 : -1;
+          const x = px + (horizontal ? cloud.along * size : (edge.side === 'west' ? 0 : size) + inward * cloud.radius * size * .3);
+          const y = py + (horizontal ? (edge.side === 'north' ? 0 : size) + inward * cloud.radius * size * .3 : cloud.along * size);
+          const radius = cloud.radius * size * 1.15;
+          const wisp = fogCtx.createRadialGradient(x, y, 0, x, y, radius);
+          wisp.addColorStop(0, `rgba(3,7,6,${cloud.opacity * .38})`);
+          wisp.addColorStop(.55, `rgba(3,7,6,${cloud.opacity * .2})`);
+          wisp.addColorStop(1, 'rgba(3,7,6,0)');
+          fogCtx.fillStyle = wisp;
+          fogCtx.beginPath(); fogCtx.arc(x, y, radius, 0, Math.PI * 2); fogCtx.fill();
+        }
+      }
+    }
+    ctx.save();
+    ctx.filter = `blur(${Math.max(1.5, size * .055)}px)`;
+    ctx.drawImage(fogCanvas, 0, 0);
     ctx.restore();
   }
 
