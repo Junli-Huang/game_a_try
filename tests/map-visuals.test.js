@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   directionAngle,
   exposedFogEdges,
+  fogClearingBlobs,
   fogEdgeClouds,
   seededFogJitter,
   shouldDrawGridEdge,
@@ -44,6 +45,19 @@ test('fog edge clouds form a stable irregular boundary', () => {
     && opacity >= .48 && opacity <= .72
   )));
   assert.notDeepEqual(clouds, fogEdgeClouds(7, 12, 3));
+});
+
+test('fog clearing is built from stable overlapping soft blobs', () => {
+  const blobs = fogClearingBlobs(7, 12);
+  assert.deepEqual(blobs, fogClearingBlobs(7, 12));
+  assert.equal(blobs.length, 2);
+  assert.ok(blobs.every(({ x, y, radius, softness }) => (
+    x >= .3 && x <= .7
+    && y >= .3 && y <= .7
+    && radius >= .48 && radius <= .92
+    && softness >= .4 && softness <= .55
+  )));
+  assert.notDeepEqual(blobs, fogClearingBlobs(8, 12));
 });
 
 test('fog edges are emitted only beside unexplored tiles', () => {
