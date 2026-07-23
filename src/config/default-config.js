@@ -1,5 +1,5 @@
 export const DEFAULT_CONFIG = {
-  version: '1.3.2',
+  version: '1.3.3',
   global: {
     maxHealth: 100,
     maxHunger: 100,
@@ -35,6 +35,7 @@ export const DEFAULT_CONFIG = {
       defense: 0, speed: 4, actionSpeed: 1, canMove: false, canWander: false,
       actionChance: 0, maxMovesPerTurn: 0, wanderRadius: 0,
       hostile: false, detectRange: 0, detectRadius: 0, alertDuration: 0, attackIntentRange: 0, canChase: false,
+      vision: { enabled: true, range: 2, angle: 90, rotateWhenIdle: true, canRotateBeforeMove: true, canDetectAfterMove: true },
       maxChaseDistance: 0, maxHomeDistance: 0, returnHome: false,
       disengageCooldownTurns: 1, canHarvest: true,
       harvestTurns: 2, meatYield: 2, carriedLoot: []
@@ -44,6 +45,7 @@ export const DEFAULT_CONFIG = {
       defense: 1, speed: 8, actionSpeed: 1, canMove: true, canWander: true,
       actionChance: 0.72, maxMovesPerTurn: 1, wanderRadius: 4,
       hostile: true, detectRange: 3, detectRadius: 3, alertDuration: 2, attackIntentRange: 1, canChase: true,
+      vision: { enabled: true, range: 3, angle: 90, rotateWhenIdle: true, canRotateBeforeMove: true, canDetectAfterMove: true },
       maxChaseDistance: 5, maxHomeDistance: 6, returnHome: true,
       disengageCooldownTurns: 2, canHarvest: true,
       harvestTurns: 3, meatYield: 3, carriedLoot: []
@@ -53,6 +55,7 @@ export const DEFAULT_CONFIG = {
       defense: 2, speed: 12, actionSpeed: 1.2, canMove: true, canWander: false,
       actionChance: 1, maxMovesPerTurn: 1, wanderRadius: 3,
       hostile: true, detectRange: 5, detectRadius: 5, alertDuration: 1, attackIntentRange: 1, canChase: true,
+      vision: { enabled: true, range: 5, angle: 90, rotateWhenIdle: true, canRotateBeforeMove: true, canDetectAfterMove: true },
       maxChaseDistance: 8, maxHomeDistance: 7, returnHome: true,
       disengageCooldownTurns: 3, canHarvest: true,
       harvestTurns: 4, meatYield: 5, carriedLoot: []
@@ -62,6 +65,7 @@ export const DEFAULT_CONFIG = {
       defense: 2, speed: 0, actionSpeed: 0, canMove: false, canWander: false,
       actionChance: 0, maxMovesPerTurn: 0, wanderRadius: 0,
       hostile: false, detectRange: 0, detectRadius: 0, alertDuration: 0, attackIntentRange: 0, canChase: false,
+      vision: { enabled: false, range: 0, angle: 90, rotateWhenIdle: false, canRotateBeforeMove: false, canDetectAfterMove: false },
       maxChaseDistance: 0, maxHomeDistance: 0, returnHome: false,
       disengageCooldownTurns: 1, canHarvest: true,
       harvestTurns: 4, meatYield: 5, carriedLoot: [],
@@ -144,6 +148,7 @@ export const DEFAULT_CONFIG = {
     showGoal: true,
     showShortcuts: true,
     showEnemyStateIcons: true,
+    showEnemyVision: true,
     transitionDurationMs: 600
   },
   demoGoal: {
