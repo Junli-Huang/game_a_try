@@ -112,7 +112,7 @@ function renderMain() {
           ${button('关于', 'about', 'ghost')}
           ${save.expeditions || save.introSeen ? button('重置存档', 'reset-save', 'ghost danger') : ''}
         </div>
-        <p class="version">V1.3.6 · Organic Fog Clearing</p>
+        <p class="version">V1.3.7 · Continuous Fog Mask</p>
       </div>
       <aside class="menu-note">
         <span>生存守则 01</span>
