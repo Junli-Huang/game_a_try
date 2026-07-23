@@ -1,4 +1,4 @@
-# 雾下余粮（Tiny Signal V1.3.2）
+# 雾下余粮（Tiny Signal V1.3.3）
 
 一个轻量化的“搜打撤 + 资源管理”H5 游戏 Demo。
 
@@ -16,7 +16,7 @@
 - 怪物肉净化：每块肉保存当前/最大疯狂；玩家可在圣遗物面板选择具体肉块进行完全或部分净化，食用只吸收当前剩余污染
 - 户外：10×10～50×50 格子地图、跟随玩家的 20×20 视口、四方向移动、离散地图回合
 - 战争迷雾：未探索 / 已探索记忆 / 当前可见三种状态
-- 明雷敌人：视野外使用真实地图行动，旧位置只显示记忆标记
+- 明雷敌人：普通敌人拥有四方向朝向和受障碍遮挡的可配置扇形视野；视野外继续真实行动，旧位置只显示记忆标记
 - 危险反馈：Alert 警觉、Chase 追踪与 AttackIntent 攻击意图预告
 - 独立战斗：宝可梦式转场、攻击/防御/道具/逃跑、速度决定先后手
 - 怪物：统一地图状态机，支持 Idle / Wander / Alert / Chase / AttackIntent / Return / Cooldown / Dead
@@ -33,7 +33,7 @@
 ## 操作
 
 - 移动：方向键或 WASD
-- 接敌：尝试进入敌人所在格
+- 接敌：尝试进入敌人所在格；相邻但位于敌人背面不会仅因距离自动暴露
 - 战斗：方向键切换行动，回车确认；“道具”中可以选择异变肉块
 - 切割 / 撤离：站在目标格后按 E 或点击交互按钮
 - 手机：使用屏幕方向键和操作按钮
@@ -60,6 +60,8 @@
 V1.3.1 的打磨范围与验收标准见 [`docs/design/v1.3.1-mvp-demo-polish.md`](./docs/design/v1.3.1-mvp-demo-polish.md)。
 
 V1.3.2 的疯狂抗性、圣遗物与怪物肉净化规则见 [`docs/design/v1.3.2-madness-resistance-and-purification.md`](./docs/design/v1.3.2-madness-resistance-and-purification.md)。
+
+V1.3.3 的敌人朝向、扇形视野、障碍遮挡与观察规则见 [`docs/design/v1.3.3-enemy-directional-vision.md`](./docs/design/v1.3.3-enemy-directional-vision.md)。
 
 ## 本地开发
 
