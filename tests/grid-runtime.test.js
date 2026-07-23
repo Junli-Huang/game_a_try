@@ -16,6 +16,33 @@ function createRuntime() {
   return runtime;
 }
 
+test('successful movement emits one footstep and blocked movement stays silent', () => {
+  const events = [], runtime = createRuntime();
+  runtime.callbacks.onAudioEvent = (id) => events.push(id);
+  runtime.render = () => {}; runtime.persistExpedition = () => {}; runtime.tryMapEvent = () => {};
+  runtime.visitedTiles = new Set(['5,5']);
+  runtime.movePlayer(1, 0);
+  assert.deepEqual(events, ['move']);
+  runtime.tileAt(runtime.player.x + 1, runtime.player.y).walkable = false;
+  runtime.movePlayer(1, 0);
+  assert.deepEqual(events, ['move']);
+});
+
+test('harvest and extraction audio events are emitted once at their action boundaries', () => {
+  const events = [], runtime = createRuntime();
+  runtime.callbacks.onAudioEvent = (id) => events.push(id);
+  runtime.render = () => {}; runtime.persistExpedition = () => {};
+  runtime.advanceMapTurn = () => {};
+  const corpse = { id: 'audio-corpse', x: 5, y: 5, harvested: false, config: { ...runtime.config.monsters[1], harvestTurns: 3, meatYield: 1 } };
+  runtime.harvest(corpse);
+  assert.deepEqual(events, ['harvest', 'item']);
+  events.length = 0;
+  runtime.extractionAt = () => ({ requiredTurns: 3 });
+  runtime.succeedExpedition = () => events.push('completed');
+  runtime.extract();
+  assert.deepEqual(events, ['extract', 'completed']);
+});
+
 test('explored tiles preserve the last observed enemy snapshot', () => {
   const runtime = createRuntime();
   const config = runtime.config.monsters[1];
