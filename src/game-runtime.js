@@ -10,6 +10,14 @@ import {
   stableDirection
 } from './systems/grid-vision.js';
 import {
+  directionAngle,
+  exposedFogEdges,
+  seededFogJitter,
+  shouldDrawGridEdge,
+  visionPalette,
+  visionTone
+} from './systems/map-visuals.js';
+import {
   addMonsterMeat,
   applyEnvironmentalPollution,
   consumeLeastCorruptedMeat,
@@ -896,22 +904,16 @@ export class GridExplorationRuntime {
     const ctx = this.ctx, size = this.tileSize, fog = this.mapConfig.fogOfWar;
     ctx.fillStyle = '#080d0c'; ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
     const camera = this.getCamera();
-    const visionOverlay = this.getVisibleEnemyVision();
-    this.tiles.filter((tile) => tile.x >= camera.x && tile.y >= camera.y && tile.x < camera.x + this.viewWidth && tile.y < camera.y + this.viewHeight).forEach((tile) => {
+    const viewportTiles = this.tiles.filter((tile) => tile.x >= camera.x && tile.y >= camera.y && tile.x < camera.x + this.viewWidth && tile.y < camera.y + this.viewHeight);
+    viewportTiles.forEach((tile) => {
       const px = (tile.x - camera.x) * size, py = (tile.y - camera.y) * size;
-      if (tile.visibility === 'unexplored') {
-        ctx.fillStyle = '#050807'; ctx.fillRect(px, py, size, size); return;
-      }
-      ctx.fillStyle = tile.walkable ? '#2a4037' : '#182521'; ctx.fillRect(px, py, size, size);
-      ctx.strokeStyle = '#49605744'; ctx.strokeRect(px + .5, py + .5, size - 1, size - 1);
-      const danger = visionOverlay.get(keyOf(tile.x, tile.y));
-      if (danger) {
-        ctx.fillStyle = danger === 'danger' ? 'rgba(213,104,120,.30)'
-          : danger === 'alert' ? 'rgba(229,166,92,.25)'
-            : danger === 'cooldown' ? 'rgba(229,208,120,.11)'
-              : 'rgba(229,208,120,.17)';
-        ctx.fillRect(px + 1, py + 1, size - 2, size - 2);
-      }
+      ctx.fillStyle = tile.walkable ? '#293d35' : '#15221e'; ctx.fillRect(px, py, size, size);
+      this.drawGroundTexture(px, py, size, tile);
+    });
+    this.drawSubtleGrid(camera, viewportTiles);
+    this.drawEnemyVisionCones(camera);
+    viewportTiles.forEach((tile) => {
+      const px = (tile.x - camera.x) * size, py = (tile.y - camera.y) * size;
       const content = tile.visibility === 'visible' ? this.contentAt(tile.x, tile.y) : tile.rememberedContent;
       const memory = tile.visibility === 'explored';
       if (content?.extract) this.drawExtract(px, py, size, memory);
@@ -919,8 +921,105 @@ export class GridExplorationRuntime {
       if (content?.enemy && (tile.visibility === 'visible' || fog.showEnemyMemory)) this.drawEnemy(px, py, size, content.enemy, memory);
       if (memory) { ctx.fillStyle = `rgba(4,9,8,${1 - fog.exploredBrightness})`; ctx.fillRect(px, py, size, size); }
     });
+    this.drawFog(camera, viewportTiles);
     this.drawPlayer(camera);
     this.callbacks.onHud?.(this.getHud());
+  }
+
+  drawGroundTexture(px, py, size, tile) {
+    if (!tile.walkable) return;
+    const ctx = this.ctx;
+    const noise = seededFogJitter(tile.x, tile.y);
+    ctx.fillStyle = noise > .25 ? 'rgba(122,143,112,.035)' : 'rgba(12,22,18,.035)';
+    ctx.beginPath();
+    ctx.ellipse(px + size * (.34 + noise * .08), py + size * .58, size * .34, size * .12, noise * .8, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  drawSubtleGrid(camera, tiles) {
+    const ctx = this.ctx, size = this.tileSize;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(157,177,166,.12)';
+    ctx.lineWidth = Math.max(.55, size / 42);
+    ctx.setLineDash([Math.max(1.5, size * .08), Math.max(3, size * .15)]);
+    ctx.beginPath();
+    for (const tile of tiles) {
+      const px = (tile.x - camera.x) * size, py = (tile.y - camera.y) * size;
+      const east = this.tileAt(tile.x + 1, tile.y);
+      const south = this.tileAt(tile.x, tile.y + 1);
+      if (tile.x < camera.x + this.viewWidth - 1 && shouldDrawGridEdge(tile, east)) {
+        ctx.moveTo(px + size, py + 2); ctx.lineTo(px + size, py + size - 2);
+      }
+      if (tile.y < camera.y + this.viewHeight - 1 && shouldDrawGridEdge(tile, south)) {
+        ctx.moveTo(px + 2, py + size); ctx.lineTo(px + size - 2, py + size);
+      }
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  drawEnemyVisionCones(camera) {
+    if (this.config.ui.showEnemyVision === false) return;
+    const ctx = this.ctx, size = this.tileSize;
+    const map = { width: this.mapConfig.width, height: this.mapConfig.height, tileAt: (x, y) => this.tileAt(x, y) };
+    for (const enemy of this.monsters) {
+      if (enemy.health <= 0 || enemy.config.spawnConfig?.enabled || !enemy.config.vision?.enabled) continue;
+      if (this.tileAt(enemy.x, enemy.y)?.visibility !== 'visible') continue;
+      const cells = getVisionCells(enemy, enemy.facing, enemy.config.vision, map)
+        .filter((cell) => this.tileAt(cell.x, cell.y)?.visibility !== 'unexplored');
+      if (!cells.length) continue;
+      const centerX = (enemy.x - camera.x + .5) * size;
+      const centerY = (enemy.y - camera.y + .5) * size;
+      const radius = (enemy.config.vision.range + .48) * size;
+      const angle = directionAngle(enemy.facing);
+      const half = Math.min(359.8, Math.max(1, enemy.config.vision.angle)) * Math.PI / 360;
+      const palette = visionPalette(visionTone(enemy.state));
+      ctx.save();
+      ctx.beginPath();
+      for (const cell of cells) {
+        const px = (cell.x - camera.x) * size, py = (cell.y - camera.y) * size;
+        ctx.rect(px - 1, py - 1, size + 2, size + 2);
+      }
+      ctx.clip();
+      const gradient = ctx.createRadialGradient(centerX, centerY, size * .18, centerX, centerY, radius);
+      gradient.addColorStop(0, palette.core); gradient.addColorStop(.72, palette.core); gradient.addColorStop(1, palette.edge);
+      ctx.fillStyle = gradient;
+      ctx.beginPath(); ctx.moveTo(centerX, centerY);
+      ctx.arc(centerX, centerY, radius, angle - half, angle + half);
+      ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = palette.line; ctx.lineWidth = Math.max(1, size * .035); ctx.setLineDash([size * .18, size * .12]);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  drawFog(camera, tiles) {
+    const ctx = this.ctx, size = this.tileSize;
+    ctx.save();
+    ctx.fillStyle = '#050807';
+    for (const tile of tiles) {
+      if (tile.visibility !== 'unexplored') continue;
+      ctx.fillRect((tile.x - camera.x) * size, (tile.y - camera.y) * size, size + 1, size + 1);
+    }
+    ctx.filter = `blur(${Math.max(2, size * .13)}px)`;
+    for (const tile of tiles) {
+      const px = (tile.x - camera.x) * size, py = (tile.y - camera.y) * size;
+      for (const [index, edge] of exposedFogEdges(tile, (x, y) => this.tileAt(x, y)).entries()) {
+        const jitter = seededFogJitter(tile.x, tile.y, index);
+        const radius = size * (.28 + Math.abs(jitter) * .16);
+        const positions = edge.side === 'north' || edge.side === 'south'
+          ? [[.18, jitter * .08], [.52, -jitter * .05], [.84, jitter * .06]]
+          : [[jitter * .08, .18], [-jitter * .05, .52], [jitter * .06, .84]];
+        for (const [u, v] of positions) {
+          const x = px + (edge.side === 'west' ? 0 : edge.side === 'east' ? size : u * size);
+          const y = py + (edge.side === 'north' ? 0 : edge.side === 'south' ? size : v * size);
+          const gradient = ctx.createRadialGradient(x, y, 0, x, y, radius);
+          gradient.addColorStop(0, 'rgba(3,7,6,.72)'); gradient.addColorStop(1, 'rgba(3,7,6,0)');
+          ctx.fillStyle = gradient; ctx.beginPath(); ctx.arc(x, y, radius, 0, Math.PI * 2); ctx.fill();
+        }
+      }
+    }
+    ctx.restore();
   }
 
   drawEnemy(px, py, size, enemy, memory) {
@@ -936,9 +1035,13 @@ export class GridExplorationRuntime {
       ctx.closePath(); ctx.fill();
     } else { ctx.arc(px + size / 2, py + size / 2, size * .25, 0, Math.PI * 2); ctx.fill(); }
     if (!memory && enemy.visionEnabled && !enemy.isSpawner) {
-      const arrows = { north: '▲', east: '▶', south: '▼', west: '◀' };
-      ctx.fillStyle = '#f4ecd4'; ctx.font = `700 ${size * .24}px sans-serif`; ctx.textAlign = 'center';
-      ctx.fillText(arrows[enemy.facing] || '▼', px + size * .78, py + size * .82);
+      const angle = directionAngle(enemy.facing);
+      const centerX = px + size / 2, centerY = py + size / 2;
+      ctx.translate(centerX, centerY); ctx.rotate(angle);
+      ctx.fillStyle = '#f4ecd4'; ctx.beginPath();
+      ctx.moveTo(size * .39, 0); ctx.lineTo(size * .17, -size * .09); ctx.lineTo(size * .17, size * .09);
+      ctx.closePath(); ctx.fill();
+      ctx.rotate(-angle); ctx.translate(-centerX, -centerY);
     }
     if (!memory && ['Alert', 'Chase', 'AttackIntent'].includes(enemy.state)) {
       ctx.fillStyle = enemy.state === 'AttackIntent' ? '#ff5f5f' : '#f5d078';
