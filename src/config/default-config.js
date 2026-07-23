@@ -1,5 +1,5 @@
 export const DEFAULT_CONFIG = {
-  version: '1.3.1',
+  version: '1.3.2',
   global: {
     maxHealth: 100,
     maxHunger: 100,
@@ -16,6 +16,8 @@ export const DEFAULT_CONFIG = {
     health: 100,
     hunger: 100,
     madness: 0,
+    maxMadnessResistance: 10,
+    initialMadnessResistance: 10,
     speed: 10,
     radius: 16,
     moveSpeed: 165,
@@ -74,6 +76,8 @@ export const DEFAULT_CONFIG = {
     { id: 'safe_food', name: '储备粮', type: 'safe', healthRestore: 0, hungerRestore: 32, madnessGain: 0, allowOutdoor: true, allowShelter: true, maxStack: 20 },
     { id: 'monster_meat', name: '异变肉块', type: 'corrupted', healthRestore: 10, hungerRestore: 26, madnessGain: 12, allowOutdoor: true, allowShelter: true, maxStack: 20 }
   ],
+  monsterMeat: { maxMadness: 12 },
+  relic: { name: '静默圣遗物', maxPurification: 100, initialPurification: 100 },
   madnessStages: [
     { min: 0, max: 29, attackMultiplier: 1, state: '清醒', effectIntensity: 0 },
     { min: 30, max: 59, attackMultiplier: 1.15, state: '低语', effectIntensity: 0.25 },
@@ -88,6 +92,7 @@ export const DEFAULT_CONFIG = {
     {
       id: 'outdoor_01', name: '雾蚀林缘', width: 20, height: 20,
       allowDiagonalMove: false,
+      environmentMadness: { enabled: true, amount: 0.1, intervalSeconds: 5 },
       fogOfWar: { enabled: true, visionRadius: 3, shape: 'square', terrainBlocksVision: false, exploredBrightness: 0.38, showEnemyMemory: true, showCorpseMemory: true },
       playerSpawn: { x: 1, y: 10 },
       extractPoint: { x: 18, y: 2, requiredTurns: 3 },

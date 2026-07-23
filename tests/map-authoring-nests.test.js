@@ -68,7 +68,7 @@ function nestRuntime() {
   const config = cloneDefaultConfig();
   const runtime = new GridExplorationRuntime(canvas(), config, { madness: 0, farm: {}, activeExpedition: null });
   runtime.tiles = runtime.createTiles();
-  runtime.player = { x: 1, y: 1, health: 100, hunger: 100, madness: 0, loot: { monsterMeat: 0 } };
+  runtime.player = { x: 1, y: 1, health: 100, hunger: 100, madness: 0, madnessResistance: 10, loot: { monsterMeat: [] } };
   runtime.corpses = [];
   runtime.visitedTiles = new Set(['1,1']);
   runtime.seenSpawnerIds = new Set();
@@ -154,7 +154,7 @@ test('expedition snapshot restores RNG progress and nest countdown exactly', () 
 
   const restored = new GridExplorationRuntime(canvas(), runtime.config, runtime.save);
   restored.tiles = restored.createTiles();
-  restored.player = { x: 1, y: 1, health: 100, hunger: 100, madness: 0, loot: { monsterMeat: 0 } };
+  restored.player = { x: 1, y: 1, health: 100, hunger: 100, madness: 0, madnessResistance: 10, loot: { monsterMeat: [] } };
   restored.monsters = restored.spawnMonsters();
   restored.corpses = [];
   restored.visitedTiles = new Set(['1,1']);
@@ -189,7 +189,7 @@ test('legacy expedition snapshot fills missing loot and nest progress fields', (
   };
   const runtime = new GridExplorationRuntime(canvas(), config, save);
   runtime.tiles = runtime.createTiles();
-  runtime.player = { x: 1, y: 1, health: 100, hunger: 100, madness: 0, loot: { monsterMeat: 0 } };
+  runtime.player = { x: 1, y: 1, health: 100, hunger: 100, madness: 0, madnessResistance: 10, loot: { monsterMeat: [] } };
   runtime.monsters = [];
   runtime.corpses = [];
   runtime.visitedTiles = new Set(['1,1']);
@@ -198,7 +198,7 @@ test('legacy expedition snapshot fills missing loot and nest progress fields', (
   runtime.random = createSeededRandom('legacy:runtime');
   runtime.restoreExpedition();
 
-  assert.deepEqual(runtime.player.loot, { monsterMeat: 0 });
+  assert.deepEqual(runtime.player.loot, { monsterMeat: [] });
   assert.equal(runtime.monsters[0].spawnTurnsLeft, nestConfig.spawnConfig.initialDelayTurns);
   assert.equal(runtime.monsters[0].spawnedTotal, 0);
   assert.deepEqual([...runtime.visitedTiles], ['1,1']);

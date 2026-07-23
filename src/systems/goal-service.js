@@ -14,7 +14,8 @@ export class GoalService {
     const value = this.progress(save);
     if (value.extractions >= this.config.requiredExtractions && value.meat >= this.config.requiredMonsterMeat) return { state: 'victory', reason: 'goal', value };
     if (value.failures >= this.config.maxExpeditionFailures) return { state: 'failure', reason: 'failures', value };
-    if ((save.safeFood || 0) <= 0 && (save.monsterMeat || 0) <= 0) return { state: 'failure', reason: 'food', value };
+    const meatCount = Array.isArray(save.monsterMeat) ? save.monsterMeat.length : (save.monsterMeat || 0);
+    if ((save.safeFood || 0) <= 0 && meatCount <= 0) return { state: 'failure', reason: 'food', value };
     return { state: 'active', value };
   }
 }

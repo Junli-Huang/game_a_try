@@ -47,6 +47,22 @@ test('legacy food config gains the default health restore value', () => {
   assert.equal(imported.foods.find((food) => food.id === 'monster_meat').healthRestore, 10);
 });
 
+test('legacy config gains V1.3.2 resistance, relic, meat, and environment settings', () => {
+  const legacy = service.loadDefaultConfig();
+  delete legacy.player.maxMadnessResistance;
+  delete legacy.player.initialMadnessResistance;
+  delete legacy.monsterMeat;
+  delete legacy.relic;
+  delete legacy.maps[0].environmentMadness;
+  const migrated = service.importConfig(JSON.stringify(legacy));
+  assert.equal(migrated.version, '1.3.2');
+  assert.equal(migrated.player.maxMadnessResistance, 10);
+  assert.equal(migrated.player.initialMadnessResistance, 10);
+  assert.equal(migrated.monsterMeat.maxMadness, 12);
+  assert.equal(migrated.relic.maxPurification, 100);
+  assert.deepEqual(migrated.maps[0].environmentMadness, { enabled: true, amount: 0.1, intervalSeconds: 5 });
+});
+
 test('V1.2 config migration adds V1.3 fields without changing fixed placements', () => {
   const legacy = service.loadDefaultConfig();
   legacy.version = '1.2.0';
@@ -58,7 +74,7 @@ test('V1.2 config migration adds V1.3 fields without changing fixed placements',
   delete legacy.maps[0].randomSpawnRules;
 
   const migrated = service.importConfig(JSON.stringify(legacy));
-  assert.equal(migrated.version, '1.3.1');
+  assert.equal(migrated.version, '1.3.2');
   assert.ok(migrated.monsters.some((monster) => monster.id === 'basic_nest'));
   assert.deepEqual(migrated.maps[0].monsterSpawns, fixedPlacements);
   assert.deepEqual(migrated.maps[0].extractionPoints, [legacy.maps[0].extractPoint]);

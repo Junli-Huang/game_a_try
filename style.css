@@ -56,6 +56,11 @@ button.wide { width: 100%; margin-top: 1rem; }
 .resource-icon.meat { background: #b5666c; box-shadow: inset -5px -5px #713d4d; transform: rotate(10deg); }
 .resource strong, .resource small { display: block; }
 .resource small { margin-top: .2rem; color: var(--muted); }
+.relic-panel { position: relative; overflow: hidden; border-color: #655a3d; background: radial-gradient(circle at 82% 26%, #d9c17d18, transparent 28%), linear-gradient(145deg, #1e241d, #101714); }
+.relic-panel p { color: var(--muted); line-height: 1.55; }
+.relic-visual { position: absolute; right: 2rem; top: 2rem; width: 54px; height: 72px; display: grid; place-items: center; filter: drop-shadow(0 0 18px #d9c17d77); }
+.relic-visual i { width: 32px; height: 50px; transform: rotate(45deg); border: 2px solid #e1cf91; border-radius: 5px 18px 5px 18px; background: linear-gradient(135deg, #f3e2a955, #7b6635aa); }
+.relic-actions { display: flex; flex-wrap: wrap; gap: .55rem; margin-top: 1rem; }
 .farm-visual { display: flex; align-items: end; justify-content: center; gap: 1.5rem; height: 75px; border-bottom: 12px solid #503f2e; }
 .farm-visual i { display: block; width: 3px; height: 8px; background: #746a4e; transition: .3s; }
 .farm-visual.planted i { height: 38px; background: #819b68; box-shadow: -8px -10px 0 -3px #819b68, 8px -20px 0 -3px #93ae72; }
@@ -102,7 +107,8 @@ button.wide { width: 100%; margin-top: 1rem; }
 .hud-bars i { grid-column: 1 / -1; height: 5px; overflow: hidden; border-radius: 9px; background: #1b2522; }
 .hud-bars b { display: block; height: 100%; background: #b65f63; transition: width .1s; }
 .hud-bars label:nth-child(2) b { background: #d0b66f; }
-.hud-bars label:nth-child(3) b { background: #a76590; }
+.hud-bars label:nth-child(3) b { background: #71b894; }
+.hud-bars label:nth-child(4) b { background: #a76590; }
 .hud-info { display: flex; gap: .5rem; }
 .hud-info span { padding: .65rem .8rem; border: 1px solid #40564e; border-radius: 8px; background: #08100edb; font-size: .75rem; }
 .game-actions { position: absolute; right: 2%; bottom: 3%; display: grid; grid-template-columns: repeat(2, auto); gap: .6rem; }
