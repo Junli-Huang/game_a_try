@@ -1,5 +1,5 @@
 export const DEFAULT_CONFIG = {
-  version: '1.3.3',
+  version: '1.3.4',
   global: {
     maxHealth: 100,
     maxHunger: 100,
@@ -204,7 +204,9 @@ export const DEFAULT_CONFIG = {
     masterVolume: 0.8,
     bgmVolume: 0.5,
     sfxVolume: 0.8,
-    muted: false
+    muted: false,
+    useGeneratedAssets: true,
+    fallbackSynthEnabled: true
   },
   farming: [
     { id: 'shelter_crop', name: '灰麦', growthCycles: 2, seedCost: 1, yieldItem: 'safe_food', yieldCount: 3, allowShelter: true, allowOutdoor: false }

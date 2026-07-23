@@ -34,6 +34,7 @@ let mapEditorSelection = null;
 let mapAreaAnchor = null;
 const mapEditorHistory = { undo: [], redo: [] };
 addEventListener('pointerdown', () => audioService.unlock(), { once: true });
+addEventListener('keydown', () => audioService.unlock(), { once: true });
 document.addEventListener('visibilitychange', () => runtime?.setPageHidden(document.hidden));
 
 const labels = {
@@ -111,7 +112,7 @@ function renderMain() {
           ${button('关于', 'about', 'ghost')}
           ${save.expeditions || save.introSeen ? button('重置存档', 'reset-save', 'ghost danger') : ''}
         </div>
-        <p class="version">V1.3.3 · Enemy Directional Vision</p>
+        <p class="version">V1.3.4 · Generated SFX</p>
       </div>
       <aside class="menu-note">
         <span>生存守则 01</span>
@@ -133,6 +134,7 @@ function madnessStage(value) {
 }
 
 function renderShelter() {
+  audioService.dispose();
   config = configService.loadActiveConfig();
   goalService = new GoalService(config); madnessPresentation = new MadnessPresentationService(config); audioService = new AudioService(config);
   tutorialService = new TutorialService(save, persistSave);
@@ -261,7 +263,7 @@ function restoreMadnessResistance() {
   if (config.relic.enabled === false) return toast('圣遗物未启用', true);
   const result = restoreResistance(save, config.relic.resistanceRestoreCostMultiplier);
   if (result.restored <= 0) return toast(save.madnessResistance >= save.maxMadnessResistance ? '疯狂抗性已经恢复至上限' : '圣遗物净化值不足', true);
-  persistSave(save); renderShelter(); toast(`消耗 ${formatResource(result.cost)} 点净化值，恢复 ${formatResource(result.restored)} 点疯狂抗性`);
+  persistSave(save); renderShelter(); audioService.playSfx('resistance_restore'); toast(`消耗 ${formatResource(result.cost)} 点净化值，恢复 ${formatResource(result.restored)} 点疯狂抗性`);
 }
 
 function showMonsterMeatPurification() {
@@ -285,7 +287,7 @@ function showMonsterMeatPurification() {
 function purifySelectedMonsterMeat(meatId) {
   const result = purifyMonsterMeat(save, meatId, config.relic.meatPurificationCostMultiplier);
   if (result.purified <= 0) return toast('圣遗物净化值不足', true);
-  closeModal(); persistSave(save); renderShelter();
+  closeModal(); persistSave(save); renderShelter(); audioService.playSfx('purify');
   toast(result.meat.currentMadness > 0
     ? `消耗 ${formatResource(result.cost)} 点净化值，这块肉仍有 ${formatResource(result.meat.currentMadness)} 点污染`
     : `消耗 ${formatResource(result.cost)} 点净化值，这块肉已完全净化`);
@@ -384,6 +386,7 @@ function startExpedition() {
     onMapEvent: renderMapEvent,
     onMapEventResult: renderMapEventResult,
     onMadnessChange: handleMadnessChange,
+    onAudioEvent: (id) => audioService.playSfx(id),
     onMilestone: showTutorial,
     onSave: (nextSave) => { if (!playtestState) persistSave(nextSave); },
     onComplete: (nextSave, success) => {
@@ -446,7 +449,7 @@ function handleMadnessChange(before, after) {
   if (root) root.className = root.className.replace(/madness-\w+/g, '').trim() + ` madness-${madnessPresentation.stage(after).id}`;
   if (change && config.madnessPresentation.showStageMessages) showStageMessage(change);
   if (config.madnessPresentation.showWhispers) showWhisper(madnessPresentation.eatMessage(after));
-  audioService.playSfx('madness');
+  if (after > before) audioService.playSfx('madness');
 }
 
 function renderMapEvent(event, choose) {
@@ -556,7 +559,7 @@ const categoryDescriptions = {
   global: '控制整局规则、上限、消耗与失败结算。', player: '玩家初始能力，不修改正在进行中的角色。', monsters: '三种预设共用同一状态机，差异完全来自参数。',
   foods: '定义食物恢复效果；异变肉实际疯狂取所食肉块的当前污染值。', monsterMeat: '定义新生成异变肉的最大疯狂值。', relic: '定义庇护所圣遗物的名称、最大与初始净化值。', madnessStages: '定义疯狂阈值和攻击倍率。', equipment: '定义默认装备提供的能力。',
   maps: '定义 10×10 至 50×50 地图、迷雾、出生点、撤离点、固定与随机刷怪规则。', mapEditor: '可视化绘制障碍、出生点、撤离点与固定怪物；修改不会操作当前游戏实体。', battle: '定义独立回合制战斗、速度先手、转场与结果展示。', ui: '定义目标、快捷键、敌人图标和交互反馈。',
-  demoGoal: '定义展示版的胜利目标与失败上限。', madnessPresentation: '定义低语、边缘效果和减少动态效果。', mapEvents: '定义随机事件的触发频率与上限。', events: '定义事件内容、权重、条件、选择与效果。', audio: '定义合成音效开关、静音与音量。',
+  demoGoal: '定义展示版的胜利目标与失败上限。', madnessPresentation: '定义低语、边缘效果和减少动态效果。', mapEvents: '定义随机事件的触发频率与上限。', events: '定义事件内容、权重、条件、选择与效果。', audio: '定义程序化 WAV 音效、合成回退、静音与音量。',
   farming: '定义作物周期与产出。', shelter: '定义新存档的初始库存。'
 };
 

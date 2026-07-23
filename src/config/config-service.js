@@ -65,7 +65,8 @@ export class ConfigService {
       ...defaults.monsters.filter((monster) => monster.spawnConfig?.enabled && !monsterIds.has(monster.id)).map((monster) => structuredClone(monster))
     ];
     migrated.ui = { ...defaults.ui, ...(migrated.ui || {}) };
-    migrated.version = '1.3.3';
+    migrated.audio = { ...defaults.audio, ...(migrated.audio || {}) };
+    migrated.version = '1.3.4';
     migrated.maps = (migrated.maps || defaults.maps).map((map, index) => ({
       ...(defaults.maps[index] || defaults.maps[0]),
       ...map,

@@ -55,7 +55,7 @@ test('legacy config gains V1.3.2 resistance, relic, meat, and environment settin
   delete legacy.relic;
   delete legacy.maps[0].environmentMadness;
   const migrated = service.importConfig(JSON.stringify(legacy));
-  assert.equal(migrated.version, '1.3.3');
+  assert.equal(migrated.version, '1.3.4');
   assert.equal(migrated.player.maxMadnessResistance, 10);
   assert.equal(migrated.player.initialMadnessResistance, 10);
   assert.equal(migrated.monsterMeat.maxMadness, 12);
@@ -88,7 +88,7 @@ test('V1.2 config migration adds V1.3 fields without changing fixed placements',
   delete legacy.maps[0].randomSpawnRules;
 
   const migrated = service.importConfig(JSON.stringify(legacy));
-  assert.equal(migrated.version, '1.3.3');
+  assert.equal(migrated.version, '1.3.4');
   assert.ok(migrated.monsters.some((monster) => monster.id === 'basic_nest'));
   assert.equal(migrated.monsters.find((monster) => monster.id === 'wanderer').vision.range, legacy.monsters.find((monster) => monster.id === 'wanderer').detectRadius);
   assert.equal(migrated.monsters.find((monster) => monster.id === 'wanderer').vision.angle, 90);
