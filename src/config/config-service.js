@@ -1,4 +1,5 @@
 import { cloneDefaultConfig } from './default-config.js';
+import { normalizeMonsterMeat } from '../systems/madness-resources.js';
 
 export const CONFIG_STORAGE_KEY = 'tiny-signal-game.config';
 export const SAVE_STORAGE_KEY = 'tiny-signal-game.save';
@@ -27,6 +28,11 @@ export class ConfigService {
       migrated.battle.playerActions = migrated.battle.playerActions.map((action) => action === 'eat' ? 'item' : action);
     }
     const defaults = this.loadDefaultConfig();
+    migrated.player = { ...defaults.player, ...(migrated.player || {}) };
+    migrated.player.maxMadnessResistance ??= defaults.player.maxMadnessResistance;
+    migrated.player.initialMadnessResistance ??= defaults.player.initialMadnessResistance;
+    migrated.monsterMeat = { ...defaults.monsterMeat, ...(migrated.monsterMeat || {}) };
+    migrated.relic = { ...defaults.relic, ...(migrated.relic || {}) };
     const defaultFoods = new Map(defaults.foods.map((food) => [food.id, food]));
     migrated.foods = (migrated.foods || defaults.foods).map((food) => ({
       ...food,
@@ -38,10 +44,11 @@ export class ConfigService {
       ...monsters,
       ...defaults.monsters.filter((monster) => monster.spawnConfig?.enabled && !monsterIds.has(monster.id)).map((monster) => structuredClone(monster))
     ];
-    migrated.version = '1.3.1';
+    migrated.version = '1.3.2';
     migrated.maps = (migrated.maps || defaults.maps).map((map, index) => ({
       ...(defaults.maps[index] || defaults.maps[0]),
       ...map,
+      environmentMadness: { ...(defaults.maps[index] || defaults.maps[0]).environmentMadness, ...(map.environmentMadness || {}) },
       extractionPoints: map.extractionPoints || (map.extractPoint ? [map.extractPoint] : structuredClone(defaults.maps[0].extractionPoints)),
       random: { ...defaults.maps[0].random, ...(map.random || {}) },
       randomSpawnRules: map.randomSpawnRules || []
@@ -72,7 +79,7 @@ export class ConfigService {
   validateConfig(config) {
     const errors = [];
     if (!config || typeof config !== 'object') return { valid: false, errors: ['配置根节点必须是对象'] };
-    const required = ['global', 'player', 'monsters', 'foods', 'madnessStages', 'equipment', 'maps', 'farming', 'battle', 'ui', 'demoGoal', 'madnessPresentation', 'mapEvents', 'events', 'audio'];
+    const required = ['global', 'player', 'monsters', 'foods', 'monsterMeat', 'relic', 'madnessStages', 'equipment', 'maps', 'farming', 'battle', 'ui', 'demoGoal', 'madnessPresentation', 'mapEvents', 'events', 'audio'];
     required.forEach((key) => { if (!(key in config)) errors.push(`缺少配置分类：${key}`); });
     if (errors.length) return { valid: false, errors };
 
@@ -81,6 +88,21 @@ export class ConfigService {
     });
     ['health', 'hunger', 'speed', 'moveSpeed', 'baseAttack', 'attackRange', 'attackCooldown', 'inventoryCapacity'].forEach((key) => {
       if (!isFiniteNumber(config.player[key]) || config.player[key] < 0) errors.push(`player.${key} 必须是非负数`);
+    });
+    ['maxMadnessResistance', 'initialMadnessResistance'].forEach((key) => {
+      if (!isFiniteNumber(config.player[key]) || config.player[key] < 0) errors.push(`player.${key} 必须是非负数`);
+    });
+    if (config.player.initialMadnessResistance > config.player.maxMadnessResistance) errors.push('player.initialMadnessResistance 不能超过最大疯狂抗性');
+    if (!isFiniteNumber(config.monsterMeat.maxMadness) || config.monsterMeat.maxMadness < 0) errors.push('monsterMeat.maxMadness 必须是非负数');
+    ['maxPurification', 'initialPurification'].forEach((key) => {
+      if (!isFiniteNumber(config.relic[key]) || config.relic[key] < 0) errors.push(`relic.${key} 必须是非负数`);
+    });
+    if (config.relic.initialPurification > config.relic.maxPurification) errors.push('relic.initialPurification 不能超过最大净化值');
+    ['resistanceRestoreCostMultiplier', 'meatPurificationCostMultiplier'].forEach((key) => {
+      if (!isFiniteNumber(config.relic[key]) || config.relic[key] < 0) errors.push(`relic.${key} 必须是非负数`);
+    });
+    ['enabled', 'protectsShelter'].forEach((key) => {
+      if (typeof config.relic[key] !== 'boolean') errors.push(`relic.${key} 必须是布尔值`);
     });
 
     const uniqueIds = (items, label) => {
@@ -132,6 +154,8 @@ export class ConfigService {
       if (!extracts.length) errors.push(`${map.name}：至少需要一个撤离点`);
       extracts.forEach((point) => { if (!inside(point)) errors.push(`${map.name}：撤离点超出地图边界`); });
       if (!map.fogOfWar || map.fogOfWar.visionRadius < 1) errors.push(`${map.name}：视野半径必须大于 0`);
+      if (!isFiniteNumber(map.environmentMadness?.amount) || map.environmentMadness.amount < 0) errors.push(`${map.name}：环境污染值必须是非负数`);
+      if (!isFiniteNumber(map.environmentMadness?.intervalSeconds) || map.environmentMadness.intervalSeconds <= 0) errors.push(`${map.name}：环境污染间隔必须大于 0`);
       const obstacles = new Set();
       (map.obstacles || []).forEach((obstacle) => {
         const key = `${obstacle.x},${obstacle.y}`;
@@ -180,11 +204,18 @@ export class ConfigService {
 }
 
 export function createInitialSave(config) {
+  const maxMeatMadness = config.monsterMeat?.maxMadness ?? config.foods.find((food) => food.id === 'monster_meat')?.madnessGain ?? 0;
   return {
     health: config.player.health,
     safeFood: config.shelter?.initialSafeFood ?? 4,
-    monsterMeat: config.shelter?.initialMonsterMeat ?? 0,
+    monsterMeat: normalizeMonsterMeat(config.shelter?.initialMonsterMeat ?? 0, maxMeatMadness, 'initial-meat'),
     madness: config.player.madness,
+    madnessResistance: config.player.initialMadnessResistance ?? config.player.maxMadnessResistance ?? 10,
+    maxMadnessResistance: config.player.maxMadnessResistance ?? 10,
+    relic: {
+      currentPurification: config.relic?.initialPurification ?? config.relic?.maxPurification ?? 0,
+      maxPurification: config.relic?.maxPurification ?? 0
+    },
     expeditions: 0,
     successfulExtractions: 0,
     expeditionFailures: 0,
@@ -208,14 +239,26 @@ export function loadSave(config) {
   try {
     const value = JSON.parse(localStorage.getItem(SAVE_STORAGE_KEY));
     const initial = createInitialSave(config);
-    return value && typeof value === 'object' ? {
+    if (!value || typeof value !== 'object') return initial;
+    const maxMeatMadness = config.monsterMeat?.maxMadness ?? config.foods.find((food) => food.id === 'monster_meat')?.madnessGain ?? 0;
+    const activeExpedition = value.activeExpedition ? structuredClone(value.activeExpedition) : null;
+    if (activeExpedition?.player?.loot) {
+      activeExpedition.player.loot.monsterMeat = normalizeMonsterMeat(activeExpedition.player.loot.monsterMeat, maxMeatMadness, 'legacy-outdoor-meat');
+      activeExpedition.player.madnessResistance ??= value.madnessResistance ?? initial.madnessResistance;
+    }
+    return {
       ...initial, ...value,
+      monsterMeat: normalizeMonsterMeat(value.monsterMeat, maxMeatMadness, 'legacy-shelter-meat'),
+      madnessResistance: Math.max(0, Math.min(value.madnessResistance ?? initial.madnessResistance, value.maxMadnessResistance ?? initial.maxMadnessResistance)),
+      maxMadnessResistance: value.maxMadnessResistance ?? initial.maxMadnessResistance,
+      relic: { ...initial.relic, ...(value.relic || {}) },
+      activeExpedition,
       farm: { ...initial.farm, ...value.farm },
       tutorial: {
         ...initial.tutorial, ...(value.tutorial || {}),
         completedSteps: Array.isArray(value.tutorial?.completedSteps) ? [...new Set(value.tutorial.completedSteps)] : []
       }
-    } : initial;
+    };
   } catch { return createInitialSave(config); }
 }
 

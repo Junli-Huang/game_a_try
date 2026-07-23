@@ -6,10 +6,10 @@ import { GridExplorationRuntime } from '../src/game-runtime.js';
 function createRuntime() {
   const canvas = { width: 0, height: 0, getContext: () => ({}), addEventListener() {}, removeEventListener() {} };
   const config = cloneDefaultConfig();
-  const save = { safeFood: 4, monsterMeat: 0, madness: 0, expeditions: 0, farm: { planted: false, cyclesLeft: 0 } };
+  const save = { safeFood: 4, monsterMeat: [], madness: 0, madnessResistance: 10, maxMadnessResistance: 10, expeditions: 0, farm: { planted: false, cyclesLeft: 0 } };
   const runtime = new GridExplorationRuntime(canvas, config, save);
   runtime.tiles = runtime.createTiles();
-  runtime.player = { x: 5, y: 5, health: 100, hunger: 80, madness: 0, loot: { monsterMeat: 0 } };
+  runtime.player = { x: 5, y: 5, health: 100, hunger: 80, madness: 0, madnessResistance: 10, loot: { monsterMeat: [] } };
   runtime.monsters = [];
   runtime.corpses = [];
   runtime.running = true;
@@ -84,7 +84,7 @@ test('interaction describes harvest, full inventory, and extraction', () => {
   const runtime = createRuntime();
   runtime.corpses.push({ id: 'corpse', x: 5, y: 5, config: runtime.config.monsters[0], harvested: false });
   assert.equal(runtime.getInteraction().label, '切割（2 回合）');
-  runtime.player.loot.monsterMeat = runtime.config.player.inventoryCapacity;
+  runtime.player.loot.monsterMeat = Array.from({ length: runtime.config.player.inventoryCapacity }, (_, index) => ({ id: `meat-${index}`, currentMadness: 12, maxMadness: 12 }));
   assert.equal(runtime.getInteraction().enabled, false);
   runtime.corpses = [];
   runtime.player.x = runtime.mapConfig.extractPoint.x;
@@ -100,11 +100,12 @@ test('expedition summary derives local statistics and records combat failure', (
   runtime.save.enemiesKilled = 4;
   runtime.save.nestsDestroyed = 2;
   runtime.save.totalMonsterMeatConsumed = 4;
-  runtime.player.loot.monsterMeat = 3;
+  runtime.player.loot.monsterMeat = Array.from({ length: 3 }, (_, index) => ({ id: `meat-${index}`, currentMadness: 12, maxMadness: 12 }));
   runtime.player.madness = 12;
   assert.deepEqual(runtime.getExpeditionSummary(), {
     turns: 8, exploredTiles: 3, kills: 2, nestsDestroyed: 1,
-    meatCollected: 4, meatConsumed: 1, madnessDelta: 12
+    meatCollected: 4, meatConsumed: 1, madnessDelta: 12,
+    resistanceRemaining: 10, sceneMadness: 0
   });
   runtime.stop = () => {};
   runtime.failExpedition('combat');
@@ -116,24 +117,31 @@ test('successful extraction persists remaining health', () => {
   const runtime = createRuntime();
   runtime.running = true;
   runtime.player.health = 63;
+  runtime.player.madnessResistance = 3.5;
   runtime.stop = () => {};
   runtime.succeedExpedition();
   assert.equal(runtime.save.health, 63);
+  assert.equal(runtime.save.madnessResistance, 3.5);
 });
 
 test('failed expedition resets health as part of death recovery', () => {
   const runtime = createRuntime();
   runtime.running = true;
   runtime.player.health = 0;
+  runtime.player.madnessResistance = 2.5;
   runtime.stop = () => {};
   runtime.failExpedition('combat');
   assert.equal(runtime.save.health, runtime.config.player.health);
+  assert.equal(runtime.save.madnessResistance, 2.5);
 });
 
 test('outdoor item menu exposes meat and eating consumes one exploration turn', () => {
   const runtime = createRuntime();
   runtime.running = true;
-  runtime.player.loot.monsterMeat = 2;
+  runtime.player.loot.monsterMeat = [
+    { id: 'meat-1', currentMadness: 12, maxMadness: 12 },
+    { id: 'meat-2', currentMadness: 12, maxMadness: 12 }
+  ];
   runtime.player.health = 75;
   runtime.player.hunger = 40;
   runtime.render = () => {};
@@ -142,7 +150,7 @@ test('outdoor item menu exposes meat and eating consumes one exploration turn', 
   assert.equal(item.count, 2);
   const result = runtime.useOutdoorItem('monster_meat');
   assert.equal(result.ok, true);
-  assert.equal(runtime.player.loot.monsterMeat, 1);
+  assert.equal(runtime.player.loot.monsterMeat.length, 1);
   assert.equal(runtime.turn, 1);
   assert.equal(runtime.player.health, 85);
   assert.equal(runtime.player.hunger, 66);
@@ -152,10 +160,10 @@ test('outdoor item menu exposes meat and eating consumes one exploration turn', 
 test('eating meat in battle restores health up to the configured maximum', () => {
   const runtime = createRuntime();
   runtime.player.health = 95;
-  runtime.player.loot.monsterMeat = 1;
+  runtime.player.loot.monsterMeat = [{ id: 'meat-1', currentMadness: 12, maxMadness: 12 }];
   runtime.eatMonsterMeat();
   assert.equal(runtime.player.health, 100);
-  assert.equal(runtime.player.loot.monsterMeat, 0);
+  assert.equal(runtime.player.loot.monsterMeat.length, 0);
 });
 
 test('hunger decreases on movement only', () => {
