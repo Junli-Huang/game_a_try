@@ -105,7 +105,7 @@ export const DEFAULT_CONFIG = {
       id: 'outdoor_01', name: '雾蚀林缘', width: 20, height: 20,
       allowDiagonalMove: false,
       environmentMadness: { enabled: true, amount: 0.1, intervalSeconds: 5 },
-      fogOfWar: { enabled: true, visionRadius: 3, shape: 'square', terrainBlocksVision: false, exploredBrightness: 0.38, showEnemyMemory: true, showCorpseMemory: true },
+      fogOfWar: { enabled: true, visionRadius: 3, shape: 'square', terrainBlocksVision: false, exploredBrightness: 0.18, showEnemyMemory: true, showCorpseMemory: true },
       playerSpawn: { x: 1, y: 10 },
       extractPoint: { x: 18, y: 2, requiredTurns: 3 },
       extractionPoints: [{ x: 18, y: 2, requiredTurns: 3 }, { x: 18, y: 17, requiredTurns: 3 }],
