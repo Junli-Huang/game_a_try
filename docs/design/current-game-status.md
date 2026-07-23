@@ -5,7 +5,7 @@
 >
 > 历史设计文档用于记录设计演进，不代表所有内容均已实现。
 
-- 当前版本：V1.3.6 Organic Fog Clearing
+- 当前版本：V1.3.7 Continuous Fog Mask
 - 状态依据：`main` 分支实际代码、自动测试与本地生产构建。
 - 在线状态：公开入口已核对可访问，但线上版本可能短暂落后于 `main`，具体以各部署平台当次构建为准。
 - 公开体验链接：[GitHub Pages](https://junli-huang.github.io/game_a_try/) / [chatgpt.site](https://tiny-signal-game.junli-h.chatgpt.site)
