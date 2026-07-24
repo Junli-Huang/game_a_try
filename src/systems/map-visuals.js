@@ -32,50 +32,6 @@ export function seededFogJitter(x, y, edgeIndex = 0) {
   return ((value >>> 0) / 4294967295) * 2 - 1;
 }
 
-export function exposedFogEdges(tile, tileAt) {
-  if (tile.visibility === 'unexplored') return [];
-  const directions = [
-    { dx: 0, dy: -1, side: 'north' },
-    { dx: 1, dy: 0, side: 'east' },
-    { dx: 0, dy: 1, side: 'south' },
-    { dx: -1, dy: 0, side: 'west' }
-  ];
-  return directions.filter(({ dx, dy }) => tileAt(tile.x + dx, tile.y + dy)?.visibility === 'unexplored');
-}
-
-export function fogEdgeClouds(x, y, edgeIndex = 0) {
-  return [0, 1, 2, 3].map((index) => {
-    const jitter = seededFogJitter(x, y, edgeIndex * 7 + index);
-    const secondary = seededFogJitter(x, y, edgeIndex * 11 + index + 19);
-    return {
-      along: .08 + index * .28 + jitter * .055,
-      depth: -.03 + secondary * .11,
-      radius: .22 + Math.abs(jitter) * .13,
-      opacity: .48 + Math.abs(secondary) * .24
-    };
-  });
-}
-
-export function fogClearingBlobs(x, y) {
-  const primary = seededFogJitter(x, y, 41);
-  const secondary = seededFogJitter(x, y, 73);
-  const tertiary = seededFogJitter(x, y, 109);
-  return [
-    {
-      x: .5 + primary * .1,
-      y: .5 + secondary * .1,
-      radius: .76 + Math.abs(tertiary) * .16,
-      softness: .52
-    },
-    {
-      x: .5 - secondary * .16,
-      y: .5 + tertiary * .16,
-      radius: .48 + Math.abs(primary) * .12,
-      softness: .42
-    }
-  ];
-}
-
 export function shouldDrawGridEdge(tile, neighbor) {
   return !(tile && neighbor && !tile.walkable && !neighbor.walkable);
 }

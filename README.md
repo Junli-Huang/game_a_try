@@ -1,4 +1,4 @@
-# 雾下余粮（Tiny Signal V1.3.8）
+# 雾下余粮（Tiny Signal V1.3.9）
 
 一个轻量化的“搜打撤 + 资源管理”H5 游戏 Demo。
 
