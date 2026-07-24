@@ -919,7 +919,10 @@ export class GridExplorationRuntime {
       if (content?.extract) this.drawExtract(px, py, size, memory);
       if (content?.corpse && (tile.visibility === 'visible' || fog.showCorpseMemory)) this.drawCorpse(px, py, size, memory);
       if (content?.enemy && (tile.visibility === 'visible' || fog.showEnemyMemory)) this.drawEnemy(px, py, size, content.enemy, memory);
-      if (memory) { ctx.fillStyle = `rgba(4,9,8,${1 - fog.exploredBrightness})`; ctx.fillRect(px, py, size, size); }
+      if (memory) {
+        ctx.fillStyle = `rgba(2,6,5,${1 - fog.exploredBrightness})`;
+        ctx.fillRect(px, py, size, size);
+      }
     });
     this.drawFog(camera, viewportTiles);
     this.drawPlayer(camera);

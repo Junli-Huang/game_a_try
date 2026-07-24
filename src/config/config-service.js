@@ -24,6 +24,7 @@ export class ConfigService {
   migrateConfig(config) {
     if (!config) return config;
     const migrated = structuredClone(config);
+    const previousVersion = migrated.version;
     if (Array.isArray(migrated.battle?.playerActions)) {
       migrated.battle.playerActions = migrated.battle.playerActions.map((action) => action === 'eat' ? 'item' : action);
     }
@@ -66,10 +67,18 @@ export class ConfigService {
     ];
     migrated.ui = { ...defaults.ui, ...(migrated.ui || {}) };
     migrated.audio = { ...defaults.audio, ...(migrated.audio || {}) };
-    migrated.version = '1.3.4';
+    migrated.version = '1.3.8';
     migrated.maps = (migrated.maps || defaults.maps).map((map, index) => ({
       ...(defaults.maps[index] || defaults.maps[0]),
       ...map,
+      fogOfWar: {
+        ...(defaults.maps[index] || defaults.maps[0]).fogOfWar,
+        ...(map.fogOfWar || {}),
+        // Upgrade the shipped V1.3.7 value while preserving deliberate custom values.
+        exploredBrightness: previousVersion !== '1.3.8' && map.fogOfWar?.exploredBrightness === 0.38
+          ? defaults.maps[index]?.fogOfWar?.exploredBrightness ?? defaults.maps[0].fogOfWar.exploredBrightness
+          : map.fogOfWar?.exploredBrightness ?? defaults.maps[index]?.fogOfWar?.exploredBrightness ?? defaults.maps[0].fogOfWar.exploredBrightness
+      },
       environmentMadness: { ...(defaults.maps[index] || defaults.maps[0]).environmentMadness, ...(map.environmentMadness || {}) },
       extractionPoints: map.extractionPoints || (map.extractPoint ? [map.extractPoint] : structuredClone(defaults.maps[0].extractionPoints)),
       random: { ...defaults.maps[0].random, ...(map.random || {}) },
