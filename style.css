@@ -8,6 +8,27 @@
 * { box-sizing: border-box; }
 html, body, #app { width: 100%; min-height: 100%; margin: 0; }
 body { background: var(--bg); color: var(--text); overflow-x: hidden; }
+.build-version {
+  position: fixed;
+  z-index: 30;
+  right: max(.65rem, env(safe-area-inset-right));
+  bottom: max(.5rem, env(safe-area-inset-bottom));
+  padding: .22rem .45rem;
+  color: #8ca098;
+  border: 1px solid #52675f55;
+  border-radius: 5px;
+  background: #08100eb8;
+  font-size: .62rem;
+  line-height: 1;
+  letter-spacing: .08em;
+  pointer-events: none;
+  user-select: none;
+  backdrop-filter: blur(4px);
+}
+body:has(.game-screen) .build-version {
+  top: max(.5rem, env(safe-area-inset-top));
+  bottom: auto;
+}
 button, input, textarea { font: inherit; }
 button {
   border: 1px solid #52675f; border-radius: 8px; padding: .8rem 1.25rem;
