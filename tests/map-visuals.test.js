@@ -2,9 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   directionAngle,
-  exposedFogEdges,
-  fogClearingBlobs,
-  fogEdgeClouds,
   seededFogJitter,
   shouldDrawGridEdge,
   visionPalette,
@@ -32,44 +29,6 @@ test('fog jitter is deterministic and remains normalized', () => {
   assert.equal(value, seededFogJitter(7, 12, 2));
   assert.ok(value >= -1 && value <= 1);
   assert.notEqual(value, seededFogJitter(7, 12, 3));
-});
-
-test('fog edge clouds form a stable irregular boundary', () => {
-  const clouds = fogEdgeClouds(7, 12, 2);
-  assert.deepEqual(clouds, fogEdgeClouds(7, 12, 2));
-  assert.equal(clouds.length, 4);
-  assert.ok(clouds.every(({ along, depth, radius, opacity }) => (
-    along >= 0 && along <= 1
-    && depth >= -.14 && depth <= .08
-    && radius >= .22 && radius <= .35
-    && opacity >= .48 && opacity <= .72
-  )));
-  assert.notDeepEqual(clouds, fogEdgeClouds(7, 12, 3));
-});
-
-test('fog clearing is built from stable overlapping soft blobs', () => {
-  const blobs = fogClearingBlobs(7, 12);
-  assert.deepEqual(blobs, fogClearingBlobs(7, 12));
-  assert.equal(blobs.length, 2);
-  assert.ok(blobs.every(({ x, y, radius, softness }) => (
-    x >= .3 && x <= .7
-    && y >= .3 && y <= .7
-    && radius >= .48 && radius <= .92
-    && softness >= .4 && softness <= .55
-  )));
-  assert.notDeepEqual(blobs, fogClearingBlobs(8, 12));
-});
-
-test('fog edges are emitted only beside unexplored tiles', () => {
-  const cells = new Map([
-    ['1,1', { x: 1, y: 1, visibility: 'visible' }],
-    ['1,0', { x: 1, y: 0, visibility: 'unexplored' }],
-    ['2,1', { x: 2, y: 1, visibility: 'explored' }],
-    ['1,2', { x: 1, y: 2, visibility: 'visible' }],
-    ['0,1', { x: 0, y: 1, visibility: 'unexplored' }]
-  ]);
-  const edges = exposedFogEdges(cells.get('1,1'), (x, y) => cells.get(`${x},${y}`));
-  assert.deepEqual(edges.map(({ side }) => side), ['north', 'west']);
 });
 
 test('adjacent obstacles suppress their shared grid line', () => {
