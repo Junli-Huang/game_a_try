@@ -11,7 +11,6 @@ import {
 } from './systems/grid-vision.js';
 import {
   directionAngle,
-  fogClearingBlobs,
   seededFogJitter,
   shouldDrawGridEdge,
   visionPalette,
@@ -998,37 +997,13 @@ export class GridExplorationRuntime {
 
   drawFog(camera, tiles) {
     const ctx = this.ctx, size = this.tileSize;
-    const fogCanvas = this.fogCanvas || (this.fogCanvas = document.createElement('canvas'));
-    if (fogCanvas.width !== this.canvas.width) fogCanvas.width = this.canvas.width;
-    if (fogCanvas.height !== this.canvas.height) fogCanvas.height = this.canvas.height;
-    const fogCtx = fogCanvas.getContext('2d');
-    fogCtx.clearRect(0, 0, fogCanvas.width, fogCanvas.height);
-    fogCtx.globalCompositeOperation = 'source-over';
-    fogCtx.fillStyle = '#050807';
-    fogCtx.fillRect(0, 0, fogCanvas.width, fogCanvas.height);
-
-    // The clearing itself is made from overlapping soft blobs. There is no
-    // rectangular tile mask underneath, so straight square borders cannot show
-    // through even though visibility is still calculated on the grid.
-    fogCtx.globalCompositeOperation = 'destination-out';
-    for (const tile of tiles) {
-      if (tile.visibility === 'unexplored') continue;
-      const px = (tile.x - camera.x) * size, py = (tile.y - camera.y) * size;
-      for (const blob of fogClearingBlobs(tile.x, tile.y)) {
-        const x = px + blob.x * size, y = py + blob.y * size;
-        const radius = blob.radius * size;
-        const cut = fogCtx.createRadialGradient(x, y, 0, x, y, radius);
-        cut.addColorStop(0, 'rgba(0,0,0,1)');
-        cut.addColorStop(blob.softness, 'rgba(0,0,0,.98)');
-        cut.addColorStop(.82, 'rgba(0,0,0,.72)');
-        cut.addColorStop(1, 'rgba(0,0,0,0)');
-        fogCtx.fillStyle = cut;
-        fogCtx.beginPath(); fogCtx.arc(x, y, radius, 0, Math.PI * 2); fogCtx.fill();
-      }
-    }
     ctx.save();
-    ctx.filter = `blur(${Math.max(2, size * .085)}px)`;
-    ctx.drawImage(fogCanvas, 0, 0);
+    ctx.fillStyle = '#050807';
+    for (const tile of tiles) {
+      if (tile.visibility !== 'unexplored') continue;
+      const px = (tile.x - camera.x) * size, py = (tile.y - camera.y) * size;
+      ctx.fillRect(px, py, size, size);
+    }
     ctx.restore();
   }
 
