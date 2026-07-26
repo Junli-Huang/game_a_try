@@ -14,6 +14,9 @@ test('new saves initialize persistent health from player config', () => {
   const config = service.loadDefaultConfig();
   const save = createInitialSave(config);
   assert.equal(save.health, config.player.health);
+  assert.equal(save.world.worldId, config.world.id);
+  assert.equal(save.world.seed, config.world.seed);
+  assert.deepEqual(save.world.inventory, { wood: 0, stone: 0 });
 });
 
 test('invalid references and overlapping madness stages are rejected', () => {
@@ -55,7 +58,7 @@ test('legacy config gains V1.3.2 resistance, relic, meat, and environment settin
   delete legacy.relic;
   delete legacy.maps[0].environmentMadness;
   const migrated = service.importConfig(JSON.stringify(legacy));
-  assert.equal(migrated.version, '1.3.8');
+  assert.equal(migrated.version, '2.0.0');
   assert.equal(migrated.player.maxMadnessResistance, 10);
   assert.equal(migrated.player.initialMadnessResistance, 10);
   assert.equal(migrated.monsterMeat.maxMadness, 12);
@@ -88,7 +91,7 @@ test('V1.2 config migration adds V1.3 fields without changing fixed placements',
   delete legacy.maps[0].randomSpawnRules;
 
   const migrated = service.importConfig(JSON.stringify(legacy));
-  assert.equal(migrated.version, '1.3.8');
+  assert.equal(migrated.version, '2.0.0');
   assert.ok(migrated.monsters.some((monster) => monster.id === 'basic_nest'));
   assert.equal(migrated.monsters.find((monster) => monster.id === 'wanderer').vision.range, legacy.monsters.find((monster) => monster.id === 'wanderer').detectRadius);
   assert.equal(migrated.monsters.find((monster) => monster.id === 'wanderer').vision.angle, 90);
