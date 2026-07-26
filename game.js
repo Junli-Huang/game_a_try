@@ -38,7 +38,7 @@ addEventListener('keydown', () => audioService.unlock(), { once: true });
 document.addEventListener('visibilitychange', () => runtime?.setPageHidden(document.hidden));
 
 const labels = {
-  global: '全局规则', player: '玩家', monsters: '怪物', foods: '食物', monsterMeat: '怪物肉', relic: '圣遗物', madnessStages: '疯狂阶段',
+  global: '全局规则', player: '玩家', monsters: '怪物', foods: '食物', monsterMeat: '怪物肉', relic: '圣遗物', world: '世界生成', madnessStages: '疯狂阶段',
   equipment: '装备', maps: '地图数据', mapEditor: '地图编辑', farming: '种植', shelter: '庇护所', ui: '界面反馈', speed: '速度',
   maxHealth: '最大生命', maxHunger: '最大饥饿', maxMadness: '最大疯狂', hungerDrainPerSecond: '每秒饥饿消耗',
   starvationDamagePerSecond: '饥饿伤害/秒', extractDuration: '撤离读条（秒）', loseLootOnDeath: '死亡丢失本局资源',
@@ -112,7 +112,7 @@ function renderMain() {
           ${button('关于', 'about', 'ghost')}
           ${save.expeditions || save.introSeen ? button('重置存档', 'reset-save', 'ghost danger') : ''}
         </div>
-        <p class="version">V1.3.9 · Simple Fog Mask</p>
+        <p class="version">V2.0.0 · Persistent World MVP</p>
       </div>
       <aside class="menu-note">
         <span>生存守则 01</span>
@@ -120,7 +120,7 @@ function renderMain() {
         <strong>怪物肉让你变得更强。</strong>
       </aside>
     </section>`;
-  bindActions(app, { start: renderShelter, continue: renderShelter, config: renderConfig, about: renderAbout,
+  bindActions(app, { start: startExpedition, continue: startExpedition, config: renderConfig, about: renderAbout,
     'reset-save': () => { if (confirm('确定清空当前存档并重新开始？')) { localStorage.removeItem(SAVE_STORAGE_KEY); save = createInitialSave(config); renderMain(); } }
   });
 }
@@ -280,14 +280,16 @@ function showMonsterMeatPurification() {
       action: () => purifySelectedMonsterMeat(meat.id)
     };
   });
-  actions.push({ label: '取消', action: closeModal });
+  actions.push({ label: '取消', action: () => { closeModal(); if (runtime?.running) { runtime.inputPaused = false; runtime.render(); } } });
   showModal('选择要净化的异变肉', `圣遗物净化值：${formatResource(save.relic.currentPurification)} / ${formatResource(save.relic.maxPurification)}\n选择一块肉确认净化；污染值和净化消耗按配置倍率结算。`, actions);
 }
 
 function purifySelectedMonsterMeat(meatId) {
   const result = purifyMonsterMeat(save, meatId, config.relic.meatPurificationCostMultiplier);
   if (result.purified <= 0) return toast('圣遗物净化值不足', true);
-  closeModal(); persistSave(save); renderShelter(); audioService.playSfx('purify');
+  closeModal(); persistSave(save);
+  if (runtime?.running) { runtime.inputPaused = false; runtime.render(); } else renderShelter();
+  audioService.playSfx('purify');
   toast(result.meat.currentMadness > 0
     ? `消耗 ${formatResource(result.cost)} 点净化值，这块肉仍有 ${formatResource(result.meat.currentMadness)} 点污染`
     : `消耗 ${formatResource(result.cost)} 点净化值，这块肉已完全净化`);
@@ -348,7 +350,7 @@ function showGoalResultIfNeeded() {
   }
 }
 
-function resetGame() { localStorage.removeItem(SAVE_STORAGE_KEY); save = createInitialSave(config); closeModal(); renderShelter(); }
+function resetGame() { localStorage.removeItem(SAVE_STORAGE_KEY); save = createInitialSave(config); closeModal(); startExpedition(); }
 
 function startExpedition() {
   const madnessView = madnessPresentation.stage(save.madness), progress = goalService.progress(save);
@@ -356,7 +358,7 @@ function startExpedition() {
     <section class="game-screen madness-${madnessView.id} ${config.madnessPresentation.reducedMotion ? 'reduced-motion' : ''}">
       <div class="madness-overlay" aria-hidden="true"></div>
       <div class="exploration-layout"><canvas id="game" width="760" height="760"></canvas><aside class="exploration-side">
-        <span class="eyebrow">OUTDOOR_EXPLORATION</span><h3>${config.maps[0].name}</h3>
+        <span class="eyebrow">PERSISTENT_WORLD</span><h3>静默原野</h3>
         <p>亮色是当前视野，暗色是最后记忆，黑色区域尚未探索。</p>
         <div class="legend"><span><i class="player-dot"></i>玩家</span><span><i class="enemy-dot"></i>敌人</span><span><i class="corpse-dot"></i>尸体</span><span><i class="extract-dot"></i>撤离</span></div>
         <div id="turn-message" class="turn-message"></div>
@@ -370,7 +372,7 @@ function startExpedition() {
           <label>抗性 <span id="resistance-label"></span><i><b id="resistance-bar"></b></i></label>
           <label>疯狂 <span id="madness-label"></span><i><b id="madness-bar"></b></i></label>
         </div>
-        <div class="hud-info"><span>回合 <b id="turn-label"></b></span><span>坐标 <b id="position-label"></b></span><span>攻击 <b id="attack-label"></b></span><span>本次肉 <b id="meat-label"></b> / ${config.player.inventoryCapacity}</span>${config.demoGoal.showGoalOnOutdoorHud ? `<span class="hud-goal">撤离 ${progress.extractions}/${config.demoGoal.requiredExtractions} · 肉 ${progress.meat}/${config.demoGoal.requiredMonsterMeat}</span>` : ''}</div>
+        <div class="hud-info"><span>回合 <b id="turn-label"></b></span><span>坐标 <b id="position-label"></b></span><span>攻击 <b id="attack-label"></b></span><span>异变肉 <b id="meat-label"></b></span><span>木材 <b id="wood-label"></b></span><span>石材 <b id="stone-label"></b></span></div>
       </div>
       <div id="battle-layer" class="battle-layer" hidden></div>
       <div id="danger-notice" class="danger-notice" hidden></div>
@@ -387,11 +389,12 @@ function startExpedition() {
     onMapEventResult: renderMapEventResult,
     onMadnessChange: handleMadnessChange,
     onAudioEvent: (id) => audioService.playSfx(id),
+    onRelicInteract: showWorldRelicManagement,
     onMilestone: showTutorial,
     onSave: (nextSave) => { if (!playtestState) persistSave(nextSave); },
     onComplete: (nextSave, success) => {
       if (playtestState) return leaveMapPlaytest();
-      save = nextSave; persistSave(save); renderShelter(); toast(success ? '撤离成功，搜集物已入库' : '外出失败，你失去了本次搜集物');
+      save = nextSave; persistSave(save); startExpedition(); toast(success ? '你回到了静默圣遗物附近' : '你在静默圣遗物旁重新醒来');
     }
   });
   bindActions(app, { wait: () => runtime.wait(), interact: () => runtime.interact(), 'use-item': showOutdoorItems, 'leave-playtest': leaveMapPlaytest });
@@ -403,6 +406,40 @@ function startExpedition() {
   showTutorial('outdoor_movement');
   audioService.playBgm('outdoor');
   if (config.madnessPresentation.showWhispers && save.madness >= 30) setTimeout(() => showWhisper(madnessPresentation.whisper()), 1200);
+}
+
+function showWorldRelicManagement() {
+  runtime.inputPaused = true;
+  const restorePreview = getResistanceRestorePreview(save, config.relic.resistanceRestoreCostMultiplier);
+  const contaminated = save.monsterMeat.filter((meat) => meat.currentMadness > 0);
+  showModal(
+    '静默圣遗物',
+    `保护半径：${config.world.relicRadius} 格\n污染屏蔽：≤ ${config.world.madnessProtection}\n范围内停止消耗饥饿\n\n净化值：${formatResource(save.relic.currentPurification)} / ${formatResource(save.relic.maxPurification)}\n木材：${save.world.inventory.wood} · 石材：${save.world.inventory.stone}`,
+    [
+      {
+        label: `恢复抗性 +${formatResource(restorePreview.restored)}`,
+        primary: true,
+        disabled: restorePreview.restored <= 0,
+        action: () => {
+          restoreResistance(save, config.relic.resistanceRestoreCostMultiplier);
+          persistSave(save);
+          closeModal();
+          runtime.inputPaused = false;
+          runtime.render();
+        }
+      },
+      {
+        label: `净化异变肉（${contaminated.length}）`,
+        disabled: contaminated.length <= 0,
+        action: () => {
+          closeModal();
+          runtime.inputPaused = true;
+          showMonsterMeatPurification();
+        }
+      },
+      { label: '返回地图', action: () => { closeModal(); runtime.inputPaused = false; runtime.render(); } }
+    ]
+  );
 }
 
 function showOutdoorItems() {
@@ -432,6 +469,7 @@ function updateHud(hud) {
   const width = (id, value, max) => { const node = document.querySelector(id); if (node) node.style.width = `${Math.max(0, value / max * 100)}%`; };
   set('#health-label', hud.health); set('#hunger-label', hud.hunger); set('#resistance-label', `${formatResource(hud.madnessResistance)} / ${formatResource(save.maxMadnessResistance)}`); set('#madness-label', `${formatResource(hud.madness)} · ${hud.madnessState}`);
   set('#attack-label', hud.attack); set('#meat-label', hud.meat); set('#turn-label', hud.turn); set('#position-label', hud.position);
+  set('#wood-label', hud.wood); set('#stone-label', hud.stone);
   width('#health-bar', hud.health, config.global.maxHealth); width('#hunger-bar', hud.hunger, config.global.maxHunger); width('#resistance-bar', hud.madnessResistance, save.maxMadnessResistance || 1); width('#madness-bar', hud.madness, config.global.maxMadness);
   const message = document.querySelector('#turn-message'); if (message) message.textContent = hud.message;
   const interact = document.querySelector('#interact-button');
@@ -557,7 +595,7 @@ function handleBattleKey(key) {
 
 const categoryDescriptions = {
   global: '控制整局规则、上限、消耗与失败结算。', player: '玩家初始能力，不修改正在进行中的角色。', monsters: '三种预设共用同一状态机，差异完全来自参数。',
-  foods: '定义食物恢复效果；异变肉实际疯狂取所食肉块的当前污染值。', monsterMeat: '定义新生成异变肉的最大疯狂值。', relic: '定义庇护所圣遗物的名称、最大与初始净化值。', madnessStages: '定义疯狂阈值和攻击倍率。', equipment: '定义默认装备提供的能力。',
+  foods: '定义食物恢复效果；异变肉实际疯狂取所食肉块的当前污染值。', monsterMeat: '定义新生成异变肉的最大疯狂值。', relic: '定义静默圣遗物的净化资源。', world: '定义世界 Seed、尺寸、圣遗物保护范围与污染屏蔽阈值。', madnessStages: '定义疯狂阈值和攻击倍率。', equipment: '定义默认装备提供的能力。',
   maps: '定义 10×10 至 50×50 地图、迷雾、出生点、撤离点、固定与随机刷怪规则。', mapEditor: '可视化绘制障碍、出生点、撤离点与固定怪物；修改不会操作当前游戏实体。', battle: '定义独立回合制战斗、速度先手、转场与结果展示。', ui: '定义目标、快捷键、敌人图标和交互反馈。',
   demoGoal: '定义展示版的胜利目标与失败上限。', madnessPresentation: '定义低语、边缘效果和减少动态效果。', mapEvents: '定义随机事件的触发频率与上限。', events: '定义事件内容、权重、条件、选择与效果。', audio: '定义程序化 WAV 音效、合成回退、静音与音量。',
   farming: '定义作物周期与产出。', shelter: '定义新存档的初始库存。'

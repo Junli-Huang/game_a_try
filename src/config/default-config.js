@@ -1,5 +1,5 @@
 export const DEFAULT_CONFIG = {
-  version: '1.3.4',
+  version: '2.0.0',
   global: {
     maxHealth: 100,
     maxHunger: 100,
@@ -90,6 +90,17 @@ export const DEFAULT_CONFIG = {
     meatPurificationCostMultiplier: 1,
     protectsShelter: true
   },
+  world: {
+    enabled: true,
+    id: 'world_01',
+    seed: 'silent-relic-v2',
+    width: 100,
+    height: 100,
+    relicRadius: 5,
+    madnessProtection: 100,
+    hungerProtection: true,
+    purificationPower: 100
+  },
   madnessStages: [
     { min: 0, max: 29, attackMultiplier: 1, state: '清醒', effectIntensity: 0 },
     { min: 30, max: 59, attackMultiplier: 1.15, state: '低语', effectIntensity: 0.25 },
@@ -156,8 +167,8 @@ export const DEFAULT_CONFIG = {
     requiredExtractions: 3,
     requiredMonsterMeat: 12,
     maxExpeditionFailures: 3,
-    showGoalOnShelter: true,
-    showGoalOnOutdoorHud: true
+    showGoalOnShelter: false,
+    showGoalOnOutdoorHud: false
   },
   madnessPresentation: {
     enabled: true,

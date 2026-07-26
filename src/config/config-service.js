@@ -1,5 +1,6 @@
 import { cloneDefaultConfig } from './default-config.js';
 import { normalizeMonsterMeat } from '../systems/madness-resources.js';
+import { generateWorld, migrateWorldSave } from '../systems/world-generation.js';
 
 export const CONFIG_STORAGE_KEY = 'tiny-signal-game.config';
 export const SAVE_STORAGE_KEY = 'tiny-signal-game.save';
@@ -34,6 +35,7 @@ export class ConfigService {
     migrated.player.initialMadnessResistance ??= defaults.player.initialMadnessResistance;
     migrated.monsterMeat = { ...defaults.monsterMeat, ...(migrated.monsterMeat || {}) };
     migrated.relic = { ...defaults.relic, ...(migrated.relic || {}) };
+    migrated.world = { ...defaults.world, ...(migrated.world || {}) };
     const defaultFoods = new Map(defaults.foods.map((food) => [food.id, food]));
     migrated.foods = (migrated.foods || defaults.foods).map((food) => ({
       ...food,
@@ -67,7 +69,7 @@ export class ConfigService {
     ];
     migrated.ui = { ...defaults.ui, ...(migrated.ui || {}) };
     migrated.audio = { ...defaults.audio, ...(migrated.audio || {}) };
-    migrated.version = '1.3.8';
+    migrated.version = '2.0.0';
     migrated.maps = (migrated.maps || defaults.maps).map((map, index) => ({
       ...(defaults.maps[index] || defaults.maps[0]),
       ...map,
@@ -110,7 +112,7 @@ export class ConfigService {
   validateConfig(config) {
     const errors = [];
     if (!config || typeof config !== 'object') return { valid: false, errors: ['配置根节点必须是对象'] };
-    const required = ['global', 'player', 'monsters', 'foods', 'monsterMeat', 'relic', 'madnessStages', 'equipment', 'maps', 'farming', 'battle', 'ui', 'demoGoal', 'madnessPresentation', 'mapEvents', 'events', 'audio'];
+    const required = ['global', 'player', 'monsters', 'foods', 'monsterMeat', 'relic', 'world', 'madnessStages', 'equipment', 'maps', 'farming', 'battle', 'ui', 'demoGoal', 'madnessPresentation', 'mapEvents', 'events', 'audio'];
     required.forEach((key) => { if (!(key in config)) errors.push(`缺少配置分类：${key}`); });
     if (errors.length) return { valid: false, errors };
 
@@ -135,6 +137,14 @@ export class ConfigService {
     ['enabled', 'protectsShelter'].forEach((key) => {
       if (typeof config.relic[key] !== 'boolean') errors.push(`relic.${key} 必须是布尔值`);
     });
+    ['width', 'height'].forEach((key) => {
+      if (!Number.isInteger(config.world[key]) || config.world[key] < 20 || config.world[key] > 200) errors.push(`world.${key} 必须是 20～200 的整数`);
+    });
+    ['relicRadius', 'madnessProtection', 'purificationPower'].forEach((key) => {
+      if (!isFiniteNumber(config.world[key]) || config.world[key] < 0) errors.push(`world.${key} 必须是非负数`);
+    });
+    if (!config.world.id || !String(config.world.seed || '').trim()) errors.push('world.id 和 world.seed 不能为空');
+    if (typeof config.world.hungerProtection !== 'boolean') errors.push('world.hungerProtection 必须是布尔值');
 
     const uniqueIds = (items, label) => {
       const ids = new Set();
@@ -246,6 +256,7 @@ export class ConfigService {
 
 export function createInitialSave(config) {
   const maxMeatMadness = config.monsterMeat?.maxMadness ?? config.foods.find((food) => food.id === 'monster_meat')?.madnessGain ?? 0;
+  const world = generateWorld(config.world);
   return {
     health: config.player.health,
     safeFood: config.shelter?.initialSafeFood ?? 4,
@@ -272,7 +283,8 @@ export function createInitialSave(config) {
     seenEventIds: [],
     farm: { planted: false, cyclesLeft: 0 },
     lastResult: null,
-    activeExpedition: null
+    activeExpedition: null,
+    world: migrateWorldSave(null, world)
   };
 }
 
@@ -287,12 +299,14 @@ export function loadSave(config) {
       activeExpedition.player.loot.monsterMeat = normalizeMonsterMeat(activeExpedition.player.loot.monsterMeat, maxMeatMadness, 'legacy-outdoor-meat');
       activeExpedition.player.madnessResistance ??= value.madnessResistance ?? initial.madnessResistance;
     }
+    const world = generateWorld(config.world);
     return {
       ...initial, ...value,
       monsterMeat: normalizeMonsterMeat(value.monsterMeat, maxMeatMadness, 'legacy-shelter-meat'),
       madnessResistance: Math.max(0, Math.min(value.madnessResistance ?? initial.madnessResistance, value.maxMadnessResistance ?? initial.maxMadnessResistance)),
       maxMadnessResistance: value.maxMadnessResistance ?? initial.maxMadnessResistance,
       relic: { ...initial.relic, ...(value.relic || {}) },
+      world: migrateWorldSave(value.world, world),
       activeExpedition,
       farm: { ...initial.farm, ...value.farm },
       tutorial: {
