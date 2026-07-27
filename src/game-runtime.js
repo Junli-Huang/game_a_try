@@ -23,9 +23,12 @@ import {
   normalizeMonsterMeat
 } from './systems/madness-resources.js';
 import {
+  addDynamicCorruption,
   applyWorldState,
   createWorldMapConfig,
   generateWorld,
+  getCorruptionAt,
+  getDynamicCorruption,
   isInsideRelicRange,
   terrainAt
 } from './systems/world-generation.js';
@@ -728,6 +731,10 @@ export class GridExplorationRuntime {
       ? enemySpeed > playerSpeed
       : initiator === 'enemy' && this.config.battle.initiatorActsFirst;
     this.battle = { monster, initiator, round: 1, defending: false, enemyFirst, playerTurn: false,
+      worldPositions: {
+        player: { x: this.player.x, y: this.player.y },
+        enemy: { x: monster.x, y: monster.y }
+      },
       log: [`遭遇 ${monster.config.name}。`, `速度：你 ${playerSpeed} / 敌人 ${enemySpeed}，${enemyFirst ? '敌人' : '你'}先行动。`] };
     const enter = () => {
       if (!this.battle) return;
@@ -753,7 +760,7 @@ export class GridExplorationRuntime {
       const beforeHealth = this.battle.monster.health;
       this.battle.monster.health = Math.max(0, this.battle.monster.health - damage);
       const actualDamage = beforeHealth - this.battle.monster.health;
-      this.absorbCombatDamage(actualDamage);
+      this.absorbCombatDamage(actualDamage, this.battle.worldPositions.enemy);
       this.battle.log.push(`你造成 ${actualDamage} 点伤害。`);
       if (this.battle.monster.health <= 0) return this.winBattle();
     } else if (action === 'defend') {
@@ -790,7 +797,7 @@ export class GridExplorationRuntime {
     this.player.health = Math.max(0, this.player.health - damage);
     const actualDamage = beforeHealth - this.player.health;
     this.callbacks.onAudioEvent?.(wasDefending ? 'defend' : 'hurt');
-    this.absorbCombatDamage(actualDamage);
+    this.absorbCombatDamage(actualDamage, this.battle.worldPositions.player);
     this.battle.log.push(`${this.battle.monster.config.name}造成 ${actualDamage} 点伤害。`);
     this.battle.defending = false;
   }
@@ -861,8 +868,20 @@ export class GridExplorationRuntime {
     return consumed.meat;
   }
 
-  absorbCombatDamage(amount) {
-    this.sceneMadness = Math.round((this.sceneMadness + Math.max(0, amount || 0)) * 10000) / 10000;
+  absorbCombatDamage(amount, position) {
+    const actualDamage = Math.max(0, Number(amount) || 0);
+    this.sceneMadness = Math.round((this.sceneMadness + actualDamage) * 10000) / 10000;
+    if (this.save.world && position && actualDamage > 0) {
+      addDynamicCorruption(this.save.world, position.x, position.y, actualDamage);
+      this.persistExpedition();
+    }
+    return actualDamage;
+  }
+
+  getCorruptionAt(x, y) {
+    return this.world
+      ? getCorruptionAt(this.world, this.save.world, x, y)
+      : { baseCorruption: 0, dynamicCorruption: 0, effectiveCorruption: 0 };
   }
 
   changeMadness(value) {
@@ -989,6 +1008,7 @@ export class GridExplorationRuntime {
       ctx.fillStyle = terrainColors[tile.terrainId] || (tile.walkable ? '#293d35' : '#15221e');
       ctx.fillRect(px, py, size, size);
       this.drawGroundTexture(px, py, size, tile);
+      this.drawDynamicCorruption(px, py, size, tile);
     });
     this.drawSubtleGrid(camera, viewportTiles);
     this.drawEnemyVisionCones(camera);
@@ -1019,6 +1039,23 @@ export class GridExplorationRuntime {
     ctx.beginPath();
     ctx.ellipse(px + size * (.34 + noise * .08), py + size * .58, size * .34, size * .12, noise * .8, 0, Math.PI * 2);
     ctx.fill();
+  }
+
+  drawDynamicCorruption(px, py, size, tile) {
+    const dynamic = getDynamicCorruption(this.save.world, tile.x, tile.y);
+    if (dynamic <= 0) return;
+    const alpha = dynamic <= 25 ? .07 : dynamic <= 50 ? .11 : dynamic <= 100 ? .16 : .22;
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.fillStyle = `rgba(92,24,77,${alpha})`;
+    ctx.fillRect(px, py, size, size);
+    ctx.strokeStyle = `rgba(151,57,91,${Math.min(.28, alpha + .05)})`;
+    ctx.lineWidth = Math.max(1, size * .035);
+    ctx.beginPath();
+    ctx.moveTo(px + size * .16, py + size * .74);
+    ctx.bezierCurveTo(px + size * .34, py + size * .52, px + size * .55, py + size * .88, px + size * .84, py + size * .6);
+    ctx.stroke();
+    ctx.restore();
   }
 
   drawWorldResource(px, py, size, resource, memory) {

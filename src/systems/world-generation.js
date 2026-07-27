@@ -1,6 +1,6 @@
 import { createSeededRandom } from './map-generation.js';
 
-export const WORLD_SAVE_VERSION = 1;
+export const WORLD_SAVE_VERSION = 2;
 
 export const TERRAIN = Object.freeze({
   grass: { id: 'grass', walkable: true, pollution: 18 },
@@ -162,6 +162,7 @@ export function createWorldSave(world) {
     playerPosition: { ...world.playerSpawn },
     inventory: { wood: 0, stone: 0 },
     resourceStates: {},
+    dynamicCorruption: {},
     discoveredRelicIds: [],
     turn: 0
   };
@@ -177,7 +178,38 @@ export function migrateWorldSave(value, world) {
     playerPosition: { ...initial.playerPosition, ...(value.playerPosition || {}) },
     inventory: { ...initial.inventory, ...(value.inventory || {}) },
     resourceStates: value.resourceStates && typeof value.resourceStates === 'object' ? { ...value.resourceStates } : {},
+    dynamicCorruption: normalizeDynamicCorruption(value.dynamicCorruption),
     discoveredRelicIds: Array.isArray(value.discoveredRelicIds) ? [...new Set(value.discoveredRelicIds)] : []
+  };
+}
+
+function normalizeDynamicCorruption(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return Object.fromEntries(Object.entries(value)
+    .filter(([key, amount]) => /^-?\d+,-?\d+$/.test(key) && Number.isFinite(amount) && amount > 0)
+    .map(([key, amount]) => [key, Math.round(amount * 10000) / 10000]));
+}
+
+export function getDynamicCorruption(worldSave, x, y) {
+  return Math.max(0, Number(worldSave?.dynamicCorruption?.[keyOf(x, y)]) || 0);
+}
+
+export function addDynamicCorruption(worldSave, x, y, amount) {
+  const added = Math.max(0, Number(amount) || 0);
+  if (!worldSave || added <= 0) return 0;
+  worldSave.dynamicCorruption ??= {};
+  const key = keyOf(x, y);
+  worldSave.dynamicCorruption[key] = Math.round((getDynamicCorruption(worldSave, x, y) + added) * 10000) / 10000;
+  return added;
+}
+
+export function getCorruptionAt(world, worldSave, x, y) {
+  const baseCorruption = Math.max(0, Number(terrainAt(world, x, y)?.pollution) || 0);
+  const dynamicCorruption = getDynamicCorruption(worldSave, x, y);
+  return {
+    baseCorruption,
+    dynamicCorruption,
+    effectiveCorruption: Math.round((baseCorruption + dynamicCorruption) * 10000) / 10000
   };
 }
 
