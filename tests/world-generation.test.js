@@ -1,9 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  addDynamicCorruption,
   applyWorldState,
   createWorldSave,
   generateWorld,
+  getCorruptionAt,
+  getDynamicCorruption,
   isInsideRelicRange,
   migrateWorldSave,
   terrainAt
@@ -37,6 +40,7 @@ test('world save stores only mutable state and migrates legacy values safely', (
   const world = generateWorld({ width: 60, height: 60, seed: 'save-check' });
   const initial = createWorldSave(world);
   assert.equal('tiles' in initial, false);
+  assert.deepEqual(initial.dynamicCorruption, {});
   const migrated = migrateWorldSave({
     worldId: world.id,
     seed: world.seed,
@@ -47,6 +51,7 @@ test('world save stores only mutable state and migrates legacy values safely', (
   assert.deepEqual(migrated.inventory, { wood: 9, stone: 0 });
   assert.deepEqual(migrated.discoveredRelicIds, ['silent-relic-0']);
   assert.equal(applyWorldState(world, migrated)[0].health, 0);
+  assert.deepEqual(migrated.dynamicCorruption, {});
 });
 
 test('world save resets when seed or world id changes', () => {
@@ -54,4 +59,35 @@ test('world save resets when seed or world id changes', () => {
   const migrated = migrateWorldSave({ worldId: world.id, seed: 'old-seed', inventory: { wood: 99 } }, world);
   assert.deepEqual(migrated.inventory, { wood: 0, stone: 0 });
   assert.deepEqual(migrated.playerPosition, world.playerSpawn);
+});
+
+test('dynamic corruption is sparse, cumulative, unbounded, and separate from seed terrain', () => {
+  const world = generateWorld({ seed: 'dynamic-layer' });
+  const save = createWorldSave(world);
+  const position = world.playerSpawn;
+  const baseBefore = terrainAt(world, position.x, position.y).pollution;
+  addDynamicCorruption(save, position.x, position.y, 5);
+  addDynamicCorruption(save, position.x, position.y, 8);
+  addDynamicCorruption(save, position.x, position.y, 202);
+  assert.equal(getDynamicCorruption(save, position.x, position.y), 215);
+  assert.deepEqual(getCorruptionAt(world, save, position.x, position.y), {
+    baseCorruption: baseBefore,
+    dynamicCorruption: 215,
+    effectiveCorruption: baseBefore + 215
+  });
+  assert.equal(terrainAt(world, position.x, position.y).pollution, baseBefore);
+  assert.equal(Object.keys(save.dynamicCorruption).length, 1);
+});
+
+test('world migration restores dynamic corruption only for the same world identity', () => {
+  const world = generateWorld({ id: 'persistent', seed: 'same-seed' });
+  const oldSave = {
+    ...createWorldSave(world),
+    dynamicCorruption: { '50,50': 13, 'bad-key': 9, '51,50': 0 }
+  };
+  const restored = migrateWorldSave(structuredClone(oldSave), world);
+  assert.deepEqual(restored.dynamicCorruption, { '50,50': 13 });
+
+  const newWorld = generateWorld({ id: 'persistent', seed: 'different-seed' });
+  assert.deepEqual(migrateWorldSave(oldSave, newWorld).dynamicCorruption, {});
 });
