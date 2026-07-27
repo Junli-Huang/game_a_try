@@ -112,7 +112,7 @@ function renderMain() {
           ${button('关于', 'about', 'ghost')}
           ${save.expeditions || save.introSeen ? button('重置存档', 'reset-save', 'ghost danger') : ''}
         </div>
-        <p class="version">V2.0.0 · Persistent World MVP</p>
+        <p class="version">V2.1.0 · Persistent Pollution</p>
       </div>
       <aside class="menu-note">
         <span>生存守则 01</span>
