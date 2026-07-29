@@ -30,6 +30,7 @@ import {
   getCorruptionAt,
   getDynamicCorruption,
   isInsideRelicRange,
+  isInsideRelicSafety,
   terrainAt
 } from './systems/world-generation.js';
 
@@ -178,13 +179,23 @@ export class GridExplorationRuntime {
   }
 
   findFreeSpawn(x, y, index, existing) {
-    const offsets = [[0, 0], [1, 0], [0, 1], [-1, 0], [0, -1], [1, 1], [-1, 1]];
+    const offsets = [];
+    for (let radius = 0; radius <= 16; radius += 1) {
+      for (let dy = -radius; dy <= radius; dy += 1) {
+        const dx = radius - Math.abs(dy);
+        offsets.push([dx, dy]);
+        if (dx > 0) offsets.push([-dx, dy]);
+      }
+    }
     for (let cursor = index; cursor < offsets.length + index; cursor += 1) {
       const offset = offsets[cursor % offsets.length];
       const candidate = { x: clamp(x + offset[0], 0, this.mapConfig.width - 1), y: clamp(y + offset[1], 0, this.mapConfig.height - 1) };
       const reserved = (candidate.x === this.mapConfig.playerSpawn.x && candidate.y === this.mapConfig.playerSpawn.y)
         || Boolean(this.extractionAt(candidate.x, candidate.y));
-      if (this.tileAt(candidate.x, candidate.y)?.walkable && !reserved && !existing.some((item) => item.x === candidate.x && item.y === candidate.y)) return candidate;
+      if (this.tileAt(candidate.x, candidate.y)?.walkable
+        && !reserved
+        && !this.isInsideRelicSafety(candidate)
+        && !existing.some((item) => item.x === candidate.x && item.y === candidate.y)) return candidate;
     }
     return null;
   }
@@ -194,6 +205,9 @@ export class GridExplorationRuntime {
   corpseAt(x, y) { return this.corpses.find((item) => item.x === x && item.y === y && !item.harvested); }
   worldResourceAt(x, y) { return this.worldResources.find((item) => item.x === x && item.y === y && item.health > 0); }
   relicAt(x, y) { return this.world?.relics.find((item) => item.x === x && item.y === y) || null; }
+  isInsideRelicSafety(position) {
+    return Boolean(this.world?.relics.some((relic) => isInsideRelicSafety(position, relic)));
+  }
 
   contentAt(x, y) {
     const monster = this.monsterAt(x, y);
@@ -531,6 +545,7 @@ export class GridExplorationRuntime {
           spawnedTotal: item.spawnedTotal ?? 0
         };
       }).filter((item) => item.config);
+      this.relocateMonstersOutsideRelicSafety();
     }
     if (Array.isArray(snapshot.corpses)) {
       this.corpses = snapshot.corpses.map((item) => ({ ...item, config: this.config.monsters.find((config) => config.id === item.configId) })).filter((item) => item.config);
@@ -549,6 +564,23 @@ export class GridExplorationRuntime {
       if (tile) Object.assign(tile, memory);
     }
     this.message = `已恢复外出记录 · Seed ${this.seed}`;
+  }
+
+  relocateMonstersOutsideRelicSafety() {
+    for (const monster of this.monsters) {
+      if (!this.isInsideRelicSafety(monster)) continue;
+      const position = this.findFreeSpawn(monster.x, monster.y, 0, this.monsters);
+      if (!position) continue;
+      monster.x = position.x;
+      monster.y = position.y;
+      if (this.isInsideRelicSafety({ x: monster.homeX, y: monster.homeY })) {
+        monster.homeX = position.x;
+        monster.homeY = position.y;
+      }
+      monster.state = monster.config.canWander ? 'Wander' : 'Idle';
+      monster.intent = null;
+      monster.lastSeenPlayerPosition = null;
+    }
   }
 
   consumeHunger(type) {
@@ -573,8 +605,15 @@ export class GridExplorationRuntime {
     const playerDistance = manhattan(monster, this.player);
     const homeDistance = manhattan(monster, { x: monster.homeX, y: monster.homeY });
     const seesPlayer = this.monsterSeesPlayer(monster);
-    if (seesPlayer) monster.lastSeenPlayerPosition = { x: this.player.x, y: this.player.y };
-    if (cfg.hostile && cfg.canChase && seesPlayer && homeDistance <= cfg.maxHomeDistance && !['Alert', 'Chase', 'AttackIntent'].includes(monster.state)) {
+    const playerInSafety = this.isInsideRelicSafety(this.player);
+    if (playerInSafety && ['Alert', 'Chase', 'AttackIntent'].includes(monster.state)) {
+      monster.state = cfg.returnHome ? 'Return' : 'Cooldown';
+      monster.cooldownTurns = cfg.returnHome ? 0 : Math.max(1, cfg.disengageCooldownTurns || 1);
+      monster.lastSeenPlayerPosition = null;
+      monster.intent = null;
+    }
+    if (seesPlayer && !playerInSafety) monster.lastSeenPlayerPosition = { x: this.player.x, y: this.player.y };
+    if (cfg.hostile && cfg.canChase && seesPlayer && !playerInSafety && homeDistance <= cfg.maxHomeDistance && !['Alert', 'Chase', 'AttackIntent'].includes(monster.state)) {
       monster.state = 'Alert';
       monster.alertTurns = Math.max(1, cfg.alertDuration || 1);
       this.notify('alert', monster, '附近的怪物似乎察觉到了你的存在。');
@@ -599,10 +638,20 @@ export class GridExplorationRuntime {
       monster.state = 'Wander';
       const choices = this.neighbors(monster.x, monster.y).filter((tile) =>
         manhattan(tile, { x: monster.homeX, y: monster.homeY }) <= cfg.wanderRadius
+        && !this.isInsideRelicSafety(tile)
         && (tile.x !== this.player.x || tile.y !== this.player.y));
       target = choices[Math.floor(random() * choices.length)];
     }
     if (!target) return;
+    if (this.isInsideRelicSafety(target)) {
+      if (['Chase', 'AttackIntent'].includes(monster.state)) {
+        monster.state = cfg.returnHome ? 'Return' : 'Cooldown';
+        monster.cooldownTurns = cfg.returnHome ? 0 : Math.max(1, cfg.disengageCooldownTurns || 1);
+        monster.lastSeenPlayerPosition = null;
+        monster.intent = null;
+      }
+      return;
+    }
     if (target.x === this.player.x && target.y === this.player.y) {
       if (monster.state !== 'AttackIntent') {
         monster.state = 'AttackIntent';
@@ -617,7 +666,7 @@ export class GridExplorationRuntime {
       monster.x = target.x; monster.y = target.y;
       monster.lastMove = { x: target.x - previous.x, y: target.y - previous.y };
       monster.facing = directionFromDelta(monster.lastMove.x, monster.lastMove.y, monster.facing);
-      if (cfg.vision?.canDetectAfterMove && this.monsterSeesPlayer(monster)) {
+      if (cfg.vision?.canDetectAfterMove && this.monsterSeesPlayer(monster) && !this.isInsideRelicSafety(this.player)) {
         monster.lastSeenPlayerPosition = { x: this.player.x, y: this.player.y };
         if (cfg.hostile && cfg.canChase && !['Alert', 'Chase', 'AttackIntent'].includes(monster.state)) {
           monster.state = 'Alert';
@@ -696,6 +745,7 @@ export class GridExplorationRuntime {
         const distance = manhattan(spawner, { x, y });
         if (distance < cfg.spawnRadiusMin || distance > cfg.spawnRadiusMax) continue;
         if (!this.tileAt(x, y)?.walkable || this.monsterAt(x, y) || (x === this.player.x && y === this.player.y) || this.extractionAt(x, y)) continue;
+        if (this.isInsideRelicSafety({ x, y })) continue;
         if (!cfg.spawnOnVisibleTile && this.tileAt(x, y).visibility === 'visible') continue;
         candidates.push({ x, y });
       }
@@ -1010,6 +1060,7 @@ export class GridExplorationRuntime {
       this.drawGroundTexture(px, py, size, tile);
       this.drawDynamicCorruption(px, py, size, tile);
     });
+    this.drawRelicSafetyFields(camera);
     this.drawSubtleGrid(camera, viewportTiles);
     this.drawEnemyVisionCones(camera);
     viewportTiles.forEach((tile) => {
@@ -1055,6 +1106,26 @@ export class GridExplorationRuntime {
     ctx.moveTo(px + size * .16, py + size * .74);
     ctx.bezierCurveTo(px + size * .34, py + size * .52, px + size * .55, py + size * .88, px + size * .84, py + size * .6);
     ctx.stroke();
+    ctx.restore();
+  }
+
+  drawRelicSafetyFields(camera) {
+    if (!this.world?.relics?.length) return;
+    const ctx = this.ctx, size = this.tileSize;
+    ctx.save();
+    for (const relic of this.world.relics) {
+      const radius = relic.safetyRadius ?? relic.radius;
+      const x = (relic.x - camera.x + .5) * size;
+      const y = (relic.y - camera.y + .5) * size;
+      const outerRadius = (radius + .75) * size;
+      if (x + outerRadius < 0 || y + outerRadius < 0 || x - outerRadius > this.canvas.width || y - outerRadius > this.canvas.height) continue;
+      const glow = ctx.createRadialGradient(x, y, size * .35, x, y, outerRadius);
+      glow.addColorStop(0, 'rgba(174,240,213,.12)');
+      glow.addColorStop(.58, 'rgba(137,211,187,.065)');
+      glow.addColorStop(1, 'rgba(105,178,158,0)');
+      ctx.fillStyle = glow;
+      ctx.fillRect(Math.max(0, x - outerRadius), Math.max(0, y - outerRadius), outerRadius * 2, outerRadius * 2);
+    }
     ctx.restore();
   }
 
