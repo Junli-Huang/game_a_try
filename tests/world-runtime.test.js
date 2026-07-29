@@ -34,12 +34,14 @@ function createWorldRuntime() {
   return runtime;
 }
 
-test('silent relic prevents hunger use inside its radius', () => {
+test('silent relic prevents hunger through radius 8 and resumes outside it', () => {
   const runtime = createWorldRuntime();
+  const relic = runtime.world.relics[0];
+  runtime.player.x = relic.x + 8;
+  runtime.player.y = relic.y;
   runtime.consumeHunger('move');
   assert.equal(runtime.player.hunger, 80);
-  runtime.player.x = 0;
-  runtime.player.y = 0;
+  runtime.player.x = relic.x + 9;
   runtime.consumeHunger('move');
   assert.equal(runtime.player.hunger, 79);
 });
@@ -66,17 +68,19 @@ test('world resource harvesting adds persistent wood or stone when depleted', ()
   assert.equal(runtime.worldResourceAt(resource.x, resource.y), undefined);
 });
 
-test('relic pollution protection blocks qualifying local pollution only', () => {
+test('relic pollution protection reaches radius 8 and stops outside it', () => {
   const runtime = createWorldRuntime();
   runtime.inputPaused = false;
   runtime.pageHidden = false;
   runtime.mode = 'OUTDOOR_EXPLORATION';
+  const relic = runtime.world.relics[0];
+  runtime.player.x = relic.x + 8;
+  runtime.player.y = relic.y;
   runtime.environmentElapsedMs = 5000;
   const settlements = runtime.advanceEnvironmentTime(0, false);
   assert.equal(settlements, 1);
   assert.equal(runtime.player.madnessResistance, 10);
-  runtime.player.x = 0;
-  runtime.player.y = 0;
+  runtime.player.x = relic.x + 9;
   runtime.environmentElapsedMs = 5000;
   runtime.advanceEnvironmentTime(0, false);
   assert.ok(runtime.player.madnessResistance < 10);

@@ -1,5 +1,5 @@
 export const DEFAULT_CONFIG = {
-  version: '2.0.0',
+  version: '2.1.2',
   global: {
     maxHealth: 100,
     maxHunger: 100,
@@ -96,7 +96,7 @@ export const DEFAULT_CONFIG = {
     seed: 'silent-relic-v2',
     width: 100,
     height: 100,
-    relicRadius: 5,
+    relicRadius: 8,
     safetyRadius: 8,
     madnessProtection: 100,
     hungerProtection: true,

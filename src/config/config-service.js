@@ -36,6 +36,11 @@ export class ConfigService {
     migrated.monsterMeat = { ...defaults.monsterMeat, ...(migrated.monsterMeat || {}) };
     migrated.relic = { ...defaults.relic, ...(migrated.relic || {}) };
     migrated.world = { ...defaults.world, ...(migrated.world || {}) };
+    if (previousVersion !== '2.1.2'
+      && migrated.world.relicRadius === 5
+      && migrated.world.safetyRadius === 8) {
+      migrated.world.relicRadius = defaults.world.relicRadius;
+    }
     const defaultFoods = new Map(defaults.foods.map((food) => [food.id, food]));
     migrated.foods = (migrated.foods || defaults.foods).map((food) => ({
       ...food,
@@ -69,7 +74,7 @@ export class ConfigService {
     ];
     migrated.ui = { ...defaults.ui, ...(migrated.ui || {}) };
     migrated.audio = { ...defaults.audio, ...(migrated.audio || {}) };
-    migrated.version = '2.0.0';
+    migrated.version = defaults.version;
     migrated.maps = (migrated.maps || defaults.maps).map((map, index) => ({
       ...(defaults.maps[index] || defaults.maps[0]),
       ...map,

@@ -33,10 +33,19 @@ test('generated world contains coherent terrain and a safe relic start', () => {
   assert.equal(terrainAt(world, world.playerSpawn.x, world.playerSpawn.y).walkable, true);
   assert.ok(terrainAt(world, world.playerSpawn.x, world.playerSpawn.y).pollution <= 50);
   assert.equal(isInsideRelicRange(world.playerSpawn, world.relics[0]), true);
-  assert.equal(world.relics[0].radius, 5);
+  assert.equal(world.relics[0].radius, 8);
   assert.equal(world.relics[0].safetyRadius, 8);
+  assert.notEqual('radius' in world.relics[0], false);
+  assert.notEqual('safetyRadius' in world.relics[0], false);
+  assert.equal(isInsideRelicRange({ x: world.relics[0].x + 8, y: world.relics[0].y }, world.relics[0]), true);
+  assert.equal(isInsideRelicRange({ x: world.relics[0].x + 9, y: world.relics[0].y }, world.relics[0]), false);
   assert.equal(isInsideRelicSafety({ x: world.relics[0].x + 8, y: world.relics[0].y }, world.relics[0]), true);
   assert.equal(isInsideRelicSafety({ x: world.relics[0].x + 9, y: world.relics[0].y }, world.relics[0]), false);
+  const preparedStartTiles = world.tiles.filter((tile) => (
+    Math.abs(tile.x - world.relics[0].x) + Math.abs(tile.y - world.relics[0].y)
+      <= world.relics[0].safetyRadius + 2
+  ));
+  assert.ok(preparedStartTiles.every((tile) => tile.walkable && tile.pollution <= 50));
   assert.ok(world.resources.some((resource) => resource.type === 'tree'));
   assert.ok(world.resources.some((resource) => resource.type === 'rock_node'));
 });
