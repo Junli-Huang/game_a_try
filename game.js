@@ -112,7 +112,7 @@ function renderMain() {
           ${button('关于', 'about', 'ghost')}
           ${save.expeditions || save.introSeen ? button('重置存档', 'reset-save', 'ghost danger') : ''}
         </div>
-        <p class="version">V2.1.1 · Silent Relic Safety</p>
+        <p class="version">V2.1.2 · Silent Relic Protection Alignment</p>
       </div>
       <aside class="menu-note">
         <span>生存守则 01</span>

@@ -133,3 +133,24 @@ test('battle position snapshot is used even if actor coordinates later change', 
   assert.equal(getDynamicCorruption(runtime.save.world, 50, 51), 9);
   assert.equal(getDynamicCorruption(runtime.save.world, 60, 60), 0);
 });
+
+test('combat inside relic protection still writes persistent dynamic corruption', () => {
+  const { runtime, enemy } = createRuntime({ enemyHealth: 20, enemyAttack: 0 });
+  const relic = runtime.world.relics[0];
+  runtime.player.x = relic.x + 1;
+  runtime.player.y = relic.y;
+  enemy.x = relic.x + 2;
+  enemy.y = relic.y;
+  enemy.homeX = enemy.x;
+  enemy.homeY = enemy.y;
+  runtime.config.player.baseAttack = 8;
+  runtime.config.equipment = [];
+
+  runtime.startBattle(enemy, 'player');
+  runtime.battleAction('attack');
+
+  const pollution = getDynamicCorruption(runtime.save.world, enemy.x, enemy.y);
+  assert.ok(pollution > 0);
+  const restored = migrateWorldSave(structuredClone(runtime.save.world), runtime.world);
+  assert.equal(getDynamicCorruption(restored, enemy.x, enemy.y), pollution);
+});

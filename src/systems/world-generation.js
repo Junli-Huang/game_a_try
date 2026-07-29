@@ -133,13 +133,13 @@ export function generateWorld(config = {}) {
     type: 'silent_relic',
     x: relicPosition.x,
     y: relicPosition.y,
-    radius: config.relicRadius ?? 5,
+    radius: config.relicRadius ?? 8,
     safetyRadius: config.safetyRadius ?? 8,
     madnessProtection: config.madnessProtection ?? 100,
     hungerProtection: config.hungerProtection !== false,
     purificationPower: config.purificationPower ?? 100
   };
-  const playerSpawn = forceSafeStart(tiles, width, relic, relic.radius);
+  const playerSpawn = forceSafeStart(tiles, width, relic, relic.safetyRadius);
   const resources = generateResources(tiles, width, height, seed, relic);
 
   return {

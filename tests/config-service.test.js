@@ -58,7 +58,7 @@ test('legacy config gains V1.3.2 resistance, relic, meat, and environment settin
   delete legacy.relic;
   delete legacy.maps[0].environmentMadness;
   const migrated = service.importConfig(JSON.stringify(legacy));
-  assert.equal(migrated.version, '2.0.0');
+  assert.equal(migrated.version, '2.1.2');
   assert.equal(migrated.player.maxMadnessResistance, 10);
   assert.equal(migrated.player.initialMadnessResistance, 10);
   assert.equal(migrated.monsterMeat.maxMadness, 12);
@@ -91,7 +91,7 @@ test('V1.2 config migration adds V1.3 fields without changing fixed placements',
   delete legacy.maps[0].randomSpawnRules;
 
   const migrated = service.importConfig(JSON.stringify(legacy));
-  assert.equal(migrated.version, '2.0.0');
+  assert.equal(migrated.version, '2.1.2');
   assert.ok(migrated.monsters.some((monster) => monster.id === 'basic_nest'));
   assert.equal(migrated.monsters.find((monster) => monster.id === 'wanderer').vision.range, legacy.monsters.find((monster) => monster.id === 'wanderer').detectRadius);
   assert.equal(migrated.monsters.find((monster) => monster.id === 'wanderer').vision.angle, 90);
@@ -110,6 +110,17 @@ test('fog memory migration darkens the shipped value but preserves custom bright
 
   legacy.maps[0].fogOfWar.exploredBrightness = 0.27;
   assert.equal(service.importConfig(JSON.stringify(legacy)).maps[0].fogOfWar.exploredBrightness, 0.27);
+});
+
+test('V2.1.1 shipped relic radius migrates to 8 while custom radii remain unchanged', () => {
+  const legacy = service.loadDefaultConfig();
+  legacy.version = '2.0.0';
+  legacy.world.relicRadius = 5;
+  legacy.world.safetyRadius = 8;
+  assert.equal(service.importConfig(JSON.stringify(legacy)).world.relicRadius, 8);
+
+  legacy.world.relicRadius = 6;
+  assert.equal(service.importConfig(JSON.stringify(legacy)).world.relicRadius, 6);
 });
 
 test('map validation rejects every authored object overlap', () => {
