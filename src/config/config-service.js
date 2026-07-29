@@ -140,7 +140,7 @@ export class ConfigService {
     ['width', 'height'].forEach((key) => {
       if (!Number.isInteger(config.world[key]) || config.world[key] < 20 || config.world[key] > 200) errors.push(`world.${key} 必须是 20～200 的整数`);
     });
-    ['relicRadius', 'madnessProtection', 'purificationPower'].forEach((key) => {
+    ['relicRadius', 'safetyRadius', 'madnessProtection', 'purificationPower'].forEach((key) => {
       if (!isFiniteNumber(config.world[key]) || config.world[key] < 0) errors.push(`world.${key} 必须是非负数`);
     });
     if (!config.world.id || !String(config.world.seed || '').trim()) errors.push('world.id 和 world.seed 不能为空');
