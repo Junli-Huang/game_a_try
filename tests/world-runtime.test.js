@@ -44,6 +44,15 @@ test('silent relic prevents hunger use inside its radius', () => {
   assert.equal(runtime.player.hunger, 79);
 });
 
+test('initial monsters are placed outside the silent relic safety area', () => {
+  const runtime = createWorldRuntime();
+  runtime.seed = 'relic-safety-spawns';
+  const expected = runtime.mapConfig.monsterSpawns.reduce((total, spawn) => total + spawn.count, 0);
+  runtime.monsters = runtime.spawnMonsters();
+  assert.equal(runtime.monsters.length, expected);
+  assert.ok(runtime.monsters.every((monster) => !runtime.isInsideRelicSafety(monster)));
+});
+
 test('world resource harvesting adds persistent wood or stone when depleted', () => {
   const runtime = createWorldRuntime();
   const resource = runtime.worldResources[0];

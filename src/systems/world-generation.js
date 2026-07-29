@@ -134,6 +134,7 @@ export function generateWorld(config = {}) {
     x: relicPosition.x,
     y: relicPosition.y,
     radius: config.relicRadius ?? 5,
+    safetyRadius: config.safetyRadius ?? 8,
     madnessProtection: config.madnessProtection ?? 100,
     hungerProtection: config.hungerProtection !== false,
     purificationPower: config.purificationPower ?? 100
@@ -220,6 +221,10 @@ export function applyWorldState(world, worldSave) {
 
 export function isInsideRelicRange(position, relic) {
   return distance(position, relic) <= relic.radius;
+}
+
+export function isInsideRelicSafety(position, relic) {
+  return distance(position, relic) <= (relic.safetyRadius ?? relic.radius);
 }
 
 export function terrainAt(world, x, y) {

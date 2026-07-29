@@ -97,6 +97,7 @@ export const DEFAULT_CONFIG = {
     width: 100,
     height: 100,
     relicRadius: 5,
+    safetyRadius: 8,
     madnessProtection: 100,
     hungerProtection: true,
     purificationPower: 100

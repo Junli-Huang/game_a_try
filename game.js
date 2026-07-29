@@ -112,7 +112,7 @@ function renderMain() {
           ${button('关于', 'about', 'ghost')}
           ${save.expeditions || save.introSeen ? button('重置存档', 'reset-save', 'ghost danger') : ''}
         </div>
-        <p class="version">V2.1.0 · Persistent Pollution</p>
+        <p class="version">V2.1.1 · Silent Relic Safety</p>
       </div>
       <aside class="menu-note">
         <span>生存守则 01</span>
@@ -414,7 +414,7 @@ function showWorldRelicManagement() {
   const contaminated = save.monsterMeat.filter((meat) => meat.currentMadness > 0);
   showModal(
     '静默圣遗物',
-    `保护半径：${config.world.relicRadius} 格\n污染屏蔽：≤ ${config.world.madnessProtection}\n范围内停止消耗饥饿\n\n净化值：${formatResource(save.relic.currentPurification)} / ${formatResource(save.relic.maxPurification)}\n木材：${save.world.inventory.wood} · 石材：${save.world.inventory.stone}`,
+    `精神保护半径：${config.world.relicRadius} 格\n安全半径：${config.world.safetyRadius} 格\n污染屏蔽：≤ ${config.world.madnessProtection}\n精神保护范围内停止消耗饥饿\n安全区内怪物不会进入或产出\n\n净化值：${formatResource(save.relic.currentPurification)} / ${formatResource(save.relic.maxPurification)}\n木材：${save.world.inventory.wood} · 石材：${save.world.inventory.stone}`,
     [
       {
         label: `恢复抗性 +${formatResource(restorePreview.restored)}`,
