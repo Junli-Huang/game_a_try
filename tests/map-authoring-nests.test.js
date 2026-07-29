@@ -136,6 +136,17 @@ test('nest skips a spawn cycle when there is no legal tile', () => {
   assert.equal(nest.spawnTurnsLeft, spawn.intervalTurns);
 });
 
+test('nest never spawns a child inside a silent relic safety area', () => {
+  const { runtime, nest, spawn } = nestRuntime();
+  runtime.world = { relics: [{ id: 'test-relic', x: nest.x, y: nest.y, radius: 1, safetyRadius: 2 }] };
+  spawn.spawnRadiusMin = 1;
+  spawn.spawnRadiusMax = 3;
+  runtime.updateSpawners();
+  const child = runtime.monsters.find((item) => item.spawnedByMonsterId === nest.id);
+  assert.ok(child);
+  assert.ok(Math.abs(child.x - nest.x) + Math.abs(child.y - nest.y) > 2);
+});
+
 test('expedition snapshot restores RNG progress and nest countdown exactly', () => {
   const { runtime, nest } = nestRuntime();
   runtime.running = true;
