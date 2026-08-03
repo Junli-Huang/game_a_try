@@ -22,17 +22,6 @@ import {
   consumeLeastCorruptedMeat,
   normalizeMonsterMeat
 } from './systems/madness-resources.js';
-import {
-  addDynamicCorruption,
-  applyWorldState,
-  createWorldMapConfig,
-  generateWorld,
-  getCorruptionAt,
-  getDynamicCorruption,
-  isInsideRelicRange,
-  isInsideRelicSafety,
-  terrainAt
-} from './systems/world-generation.js';
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const manhattan = (a, b) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
@@ -46,9 +35,7 @@ export class GridExplorationRuntime {
     this.config = config;
     this.save = save;
     this.callbacks = callbacks;
-    this.world = config.world?.enabled === false || !save.world ? null : generateWorld(config.world);
-    this.mapConfig = this.world ? createWorldMapConfig(this.world, config.maps[0]) : config.maps[0];
-    this.worldResources = this.world ? applyWorldState(this.world, save.world) : [];
+    this.mapConfig = config.maps[0];
     this.viewWidth = Math.min(20, this.mapConfig.width);
     this.viewHeight = Math.min(20, this.mapConfig.height);
     this.tileSize = Math.floor(760 / Math.max(this.viewWidth, this.viewHeight));
@@ -80,8 +67,7 @@ export class GridExplorationRuntime {
       : createExpeditionSeed(this.mapConfig);
     this.random = createSeededRandom(`${this.seed}:runtime`, snapshot?.randomState);
     this.player = {
-      x: this.save.world?.playerPosition?.x ?? this.mapConfig.playerSpawn.x,
-      y: this.save.world?.playerPosition?.y ?? this.mapConfig.playerSpawn.y,
+      x: this.mapConfig.playerSpawn.x, y: this.mapConfig.playerSpawn.y,
       health: clamp(this.save.health ?? this.config.player.health, 1, this.config.global.maxHealth), hunger: this.config.player.hunger,
       madness: this.save.madness,
       madnessResistance: this.save.madnessResistance ?? this.config.player.initialMadnessResistance,
@@ -138,16 +124,8 @@ export class GridExplorationRuntime {
     const tiles = [];
     for (let y = 0; y < this.mapConfig.height; y += 1) {
       for (let x = 0; x < this.mapConfig.width; x += 1) {
-        const worldTile = this.world ? terrainAt(this.world, x, y) : null;
         const blocked = obstacles.has(keyOf(x, y));
-        tiles.push({
-          x, y,
-          terrainId: worldTile?.terrainId || (blocked ? 'obstacle' : 'ground'),
-          pollution: worldTile?.pollution || 0,
-          walkable: worldTile?.walkable ?? !blocked,
-          visibility: 'unexplored',
-          rememberedContent: null
-        });
+        tiles.push({ x, y, terrainId: blocked ? 'obstacle' : 'ground', walkable: !blocked, visibility: 'unexplored', rememberedContent: null });
       }
     }
     return tiles;
@@ -179,23 +157,13 @@ export class GridExplorationRuntime {
   }
 
   findFreeSpawn(x, y, index, existing) {
-    const offsets = [];
-    for (let radius = 0; radius <= 16; radius += 1) {
-      for (let dy = -radius; dy <= radius; dy += 1) {
-        const dx = radius - Math.abs(dy);
-        offsets.push([dx, dy]);
-        if (dx > 0) offsets.push([-dx, dy]);
-      }
-    }
+    const offsets = [[0, 0], [1, 0], [0, 1], [-1, 0], [0, -1], [1, 1], [-1, 1]];
     for (let cursor = index; cursor < offsets.length + index; cursor += 1) {
       const offset = offsets[cursor % offsets.length];
       const candidate = { x: clamp(x + offset[0], 0, this.mapConfig.width - 1), y: clamp(y + offset[1], 0, this.mapConfig.height - 1) };
       const reserved = (candidate.x === this.mapConfig.playerSpawn.x && candidate.y === this.mapConfig.playerSpawn.y)
         || Boolean(this.extractionAt(candidate.x, candidate.y));
-      if (this.tileAt(candidate.x, candidate.y)?.walkable
-        && !reserved
-        && !this.isInsideRelicSafety(candidate)
-        && !existing.some((item) => item.x === candidate.x && item.y === candidate.y)) return candidate;
+      if (this.tileAt(candidate.x, candidate.y)?.walkable && !reserved && !existing.some((item) => item.x === candidate.x && item.y === candidate.y)) return candidate;
     }
     return null;
   }
@@ -203,11 +171,6 @@ export class GridExplorationRuntime {
   tileAt(x, y) { return this.tiles?.[y * this.mapConfig.width + x]; }
   monsterAt(x, y) { return this.monsters.find((item) => item.x === x && item.y === y); }
   corpseAt(x, y) { return this.corpses.find((item) => item.x === x && item.y === y && !item.harvested); }
-  worldResourceAt(x, y) { return this.worldResources.find((item) => item.x === x && item.y === y && item.health > 0); }
-  relicAt(x, y) { return this.world?.relics.find((item) => item.x === x && item.y === y) || null; }
-  isInsideRelicSafety(position) {
-    return Boolean(this.world?.relics.some((relic) => isInsideRelicSafety(position, relic)));
-  }
 
   contentAt(x, y) {
     const monster = this.monsterAt(x, y);
@@ -219,9 +182,7 @@ export class GridExplorationRuntime {
         isSpawner: Boolean(monster.config.spawnConfig?.enabled)
       } : null,
       corpse: corpse ? { id: corpse.id, name: corpse.config.name, harvested: corpse.harvested } : null,
-      extract: this.extractionAt(x, y),
-      resource: this.worldResourceAt(x, y),
-      relic: this.relicAt(x, y)
+      extract: this.extractionAt(x, y)
     };
   }
 
@@ -348,10 +309,6 @@ export class GridExplorationRuntime {
     if (this.mode !== 'OUTDOOR_EXPLORATION') return;
     const corpse = this.corpseAt(this.player.x, this.player.y);
     if (corpse) return this.harvest(corpse);
-    const resource = this.worldResourceAt(this.player.x, this.player.y);
-    if (resource) return this.harvestWorldResource(resource);
-    const relic = this.relicAt(this.player.x, this.player.y);
-    if (relic) return this.callbacks.onRelicInteract?.(relic);
     if (this.extractionAt(this.player.x, this.player.y)) return this.extract();
     this.setMessage('这个格子没有可以交互的对象。');
     this.render();
@@ -363,14 +320,6 @@ export class GridExplorationRuntime {
       const full = this.player.loot.monsterMeat.length >= this.config.player.inventoryCapacity;
       const turns = Math.max(1, corpse.config.harvestTurns);
       return { type: 'harvest', label: full ? '背包已满' : `切割（${turns} 回合）`, enabled: !full, tone: 'danger' };
-    }
-    const resource = this.worldResourceAt(this.player.x, this.player.y);
-    if (resource) {
-      const label = resource.type === 'tree' ? '采集树木' : '开采石矿';
-      return { type: 'world-resource', label: `${label}（${resource.health}/${resource.maxHealth}）`, enabled: true, tone: 'gold' };
-    }
-    if (this.relicAt(this.player.x, this.player.y)) {
-      return { type: 'relic', label: '管理静默圣遗物', enabled: true, tone: 'gold' };
     }
     if (this.extractionAt(this.player.x, this.player.y)) {
       const turns = Math.max(1, this.extractionAt(this.player.x, this.player.y)?.requiredTurns || 1);
@@ -395,24 +344,6 @@ export class GridExplorationRuntime {
     this.callbacks.onAudioEvent?.('item');
     this.setMessage(`切割完成，获得 ${amount} 份异变肉块。`);
     this.updateVision(); this.persistExpedition(); this.render();
-  }
-
-  harvestWorldResource(resource) {
-    resource.health = Math.max(0, resource.health - 1);
-    this.setMessage(resource.type === 'tree' ? '你砍击树干，潮湿的木屑落在地上。' : '石层裂开了一道缝。');
-    this.advanceMapTurn('harvest', false);
-    if (resource.health <= 0) {
-      const inventory = this.save.world.inventory;
-      for (const [itemId, amount] of Object.entries(resource.drop || {})) inventory[itemId] = (inventory[itemId] || 0) + amount;
-      this.setMessage(resource.type === 'tree' ? `获得木材 × ${resource.drop.wood || 0}` : `获得石材 × ${resource.drop.stone || 0}`);
-      this.callbacks.onAudioEvent?.('item');
-    }
-    this.save.world.resourceStates[resource.id] = {
-      health: resource.health,
-      depletedAtTurn: resource.health <= 0 ? this.turn : null
-    };
-    this.persistExpedition();
-    this.render();
   }
 
   extract() {
@@ -461,13 +392,6 @@ export class GridExplorationRuntime {
       return 0;
     }
     this.environmentElapsedMs -= settlements * intervalMs;
-    const relic = this.world?.relics.find((candidate) => isInsideRelicRange(this.player, candidate));
-    const localPollution = this.tileAt(this.player.x, this.player.y)?.pollution || 0;
-    if (relic && localPollution <= relic.madnessProtection) {
-      this.setMessage(`静默屏障抵消了此处 ${localPollution} 点污染。`);
-      if (persist) { this.persistExpedition(); this.render(); }
-      return settlements;
-    }
     const beforeMadness = this.player.madness;
     const beforeResistance = this.player.madnessResistance;
     const result = applyEnvironmentalPollution(this.player, rules.amount * settlements, this.config.global.maxMadness);
@@ -493,10 +417,6 @@ export class GridExplorationRuntime {
 
   persistExpedition() {
     if ((!this.running && this.turn > 0) || !this.visitedTiles || !this.tiles || !this.monsters || !this.corpses) return;
-    if (this.save.world) {
-      this.save.world.playerPosition = { x: this.player.x, y: this.player.y };
-      this.save.world.turn = this.turn;
-    }
     this.save.activeExpedition = {
       mapId: this.mapConfig.id, seed: this.seed, turn: this.turn, expeditionStart: clone(this.expeditionStart),
       player: clone(this.player),
@@ -545,7 +465,6 @@ export class GridExplorationRuntime {
           spawnedTotal: item.spawnedTotal ?? 0
         };
       }).filter((item) => item.config);
-      this.relocateMonstersOutsideRelicSafety();
     }
     if (Array.isArray(snapshot.corpses)) {
       this.corpses = snapshot.corpses.map((item) => ({ ...item, config: this.config.monsters.find((config) => config.id === item.configId) })).filter((item) => item.config);
@@ -566,27 +485,8 @@ export class GridExplorationRuntime {
     this.message = `已恢复外出记录 · Seed ${this.seed}`;
   }
 
-  relocateMonstersOutsideRelicSafety() {
-    for (const monster of this.monsters) {
-      if (!this.isInsideRelicSafety(monster)) continue;
-      const position = this.findFreeSpawn(monster.x, monster.y, 0, this.monsters);
-      if (!position) continue;
-      monster.x = position.x;
-      monster.y = position.y;
-      if (this.isInsideRelicSafety({ x: monster.homeX, y: monster.homeY })) {
-        monster.homeX = position.x;
-        monster.homeY = position.y;
-      }
-      monster.state = monster.config.canWander ? 'Wander' : 'Idle';
-      monster.intent = null;
-      monster.lastSeenPlayerPosition = null;
-    }
-  }
-
   consumeHunger(type) {
     if (type !== 'move') return;
-    const protectedByRelic = this.world?.relics.some((relic) => relic.hungerProtection && isInsideRelicRange(this.player, relic));
-    if (protectedByRelic) return;
     this.player.hunger = clamp(this.player.hunger - (this.config.global.hungerCostPerMove || 0), 0, this.config.global.maxHunger);
     if (this.player.hunger <= 0) this.player.health = clamp(this.player.health - this.config.global.starvationDamagePerAction, 0, this.config.global.maxHealth);
   }
@@ -605,15 +505,8 @@ export class GridExplorationRuntime {
     const playerDistance = manhattan(monster, this.player);
     const homeDistance = manhattan(monster, { x: monster.homeX, y: monster.homeY });
     const seesPlayer = this.monsterSeesPlayer(monster);
-    const playerInSafety = this.isInsideRelicSafety(this.player);
-    if (playerInSafety && ['Alert', 'Chase', 'AttackIntent'].includes(monster.state)) {
-      monster.state = cfg.returnHome ? 'Return' : 'Cooldown';
-      monster.cooldownTurns = cfg.returnHome ? 0 : Math.max(1, cfg.disengageCooldownTurns || 1);
-      monster.lastSeenPlayerPosition = null;
-      monster.intent = null;
-    }
-    if (seesPlayer && !playerInSafety) monster.lastSeenPlayerPosition = { x: this.player.x, y: this.player.y };
-    if (cfg.hostile && cfg.canChase && seesPlayer && !playerInSafety && homeDistance <= cfg.maxHomeDistance && !['Alert', 'Chase', 'AttackIntent'].includes(monster.state)) {
+    if (seesPlayer) monster.lastSeenPlayerPosition = { x: this.player.x, y: this.player.y };
+    if (cfg.hostile && cfg.canChase && seesPlayer && homeDistance <= cfg.maxHomeDistance && !['Alert', 'Chase', 'AttackIntent'].includes(monster.state)) {
       monster.state = 'Alert';
       monster.alertTurns = Math.max(1, cfg.alertDuration || 1);
       this.notify('alert', monster, '附近的怪物似乎察觉到了你的存在。');
@@ -638,20 +531,10 @@ export class GridExplorationRuntime {
       monster.state = 'Wander';
       const choices = this.neighbors(monster.x, monster.y).filter((tile) =>
         manhattan(tile, { x: monster.homeX, y: monster.homeY }) <= cfg.wanderRadius
-        && !this.isInsideRelicSafety(tile)
         && (tile.x !== this.player.x || tile.y !== this.player.y));
       target = choices[Math.floor(random() * choices.length)];
     }
     if (!target) return;
-    if (this.isInsideRelicSafety(target)) {
-      if (['Chase', 'AttackIntent'].includes(monster.state)) {
-        monster.state = cfg.returnHome ? 'Return' : 'Cooldown';
-        monster.cooldownTurns = cfg.returnHome ? 0 : Math.max(1, cfg.disengageCooldownTurns || 1);
-        monster.lastSeenPlayerPosition = null;
-        monster.intent = null;
-      }
-      return;
-    }
     if (target.x === this.player.x && target.y === this.player.y) {
       if (monster.state !== 'AttackIntent') {
         monster.state = 'AttackIntent';
@@ -666,7 +549,7 @@ export class GridExplorationRuntime {
       monster.x = target.x; monster.y = target.y;
       monster.lastMove = { x: target.x - previous.x, y: target.y - previous.y };
       monster.facing = directionFromDelta(monster.lastMove.x, monster.lastMove.y, monster.facing);
-      if (cfg.vision?.canDetectAfterMove && this.monsterSeesPlayer(monster) && !this.isInsideRelicSafety(this.player)) {
+      if (cfg.vision?.canDetectAfterMove && this.monsterSeesPlayer(monster)) {
         monster.lastSeenPlayerPosition = { x: this.player.x, y: this.player.y };
         if (cfg.hostile && cfg.canChase && !['Alert', 'Chase', 'AttackIntent'].includes(monster.state)) {
           monster.state = 'Alert';
@@ -745,7 +628,6 @@ export class GridExplorationRuntime {
         const distance = manhattan(spawner, { x, y });
         if (distance < cfg.spawnRadiusMin || distance > cfg.spawnRadiusMax) continue;
         if (!this.tileAt(x, y)?.walkable || this.monsterAt(x, y) || (x === this.player.x && y === this.player.y) || this.extractionAt(x, y)) continue;
-        if (this.isInsideRelicSafety({ x, y })) continue;
         if (!cfg.spawnOnVisibleTile && this.tileAt(x, y).visibility === 'visible') continue;
         candidates.push({ x, y });
       }
@@ -781,10 +663,6 @@ export class GridExplorationRuntime {
       ? enemySpeed > playerSpeed
       : initiator === 'enemy' && this.config.battle.initiatorActsFirst;
     this.battle = { monster, initiator, round: 1, defending: false, enemyFirst, playerTurn: false,
-      worldPositions: {
-        player: { x: this.player.x, y: this.player.y },
-        enemy: { x: monster.x, y: monster.y }
-      },
       log: [`遭遇 ${monster.config.name}。`, `速度：你 ${playerSpeed} / 敌人 ${enemySpeed}，${enemyFirst ? '敌人' : '你'}先行动。`] };
     const enter = () => {
       if (!this.battle) return;
@@ -810,7 +688,7 @@ export class GridExplorationRuntime {
       const beforeHealth = this.battle.monster.health;
       this.battle.monster.health = Math.max(0, this.battle.monster.health - damage);
       const actualDamage = beforeHealth - this.battle.monster.health;
-      this.absorbCombatDamage(actualDamage, this.battle.worldPositions.enemy);
+      this.absorbCombatDamage(actualDamage);
       this.battle.log.push(`你造成 ${actualDamage} 点伤害。`);
       if (this.battle.monster.health <= 0) return this.winBattle();
     } else if (action === 'defend') {
@@ -847,7 +725,7 @@ export class GridExplorationRuntime {
     this.player.health = Math.max(0, this.player.health - damage);
     const actualDamage = beforeHealth - this.player.health;
     this.callbacks.onAudioEvent?.(wasDefending ? 'defend' : 'hurt');
-    this.absorbCombatDamage(actualDamage, this.battle.worldPositions.player);
+    this.absorbCombatDamage(actualDamage);
     this.battle.log.push(`${this.battle.monster.config.name}造成 ${actualDamage} 点伤害。`);
     this.battle.defending = false;
   }
@@ -918,20 +796,8 @@ export class GridExplorationRuntime {
     return consumed.meat;
   }
 
-  absorbCombatDamage(amount, position) {
-    const actualDamage = Math.max(0, Number(amount) || 0);
-    this.sceneMadness = Math.round((this.sceneMadness + actualDamage) * 10000) / 10000;
-    if (this.save.world && position && actualDamage > 0) {
-      addDynamicCorruption(this.save.world, position.x, position.y, actualDamage);
-      this.persistExpedition();
-    }
-    return actualDamage;
-  }
-
-  getCorruptionAt(x, y) {
-    return this.world
-      ? getCorruptionAt(this.world, this.save.world, x, y)
-      : { baseCorruption: 0, dynamicCorruption: 0, effectiveCorruption: 0 };
+  absorbCombatDamage(amount) {
+    this.sceneMadness = Math.round((this.sceneMadness + Math.max(0, amount || 0)) * 10000) / 10000;
   }
 
   changeMadness(value) {
@@ -976,17 +842,7 @@ export class GridExplorationRuntime {
   }
 
   getHud() {
-    return {
-      health: Math.round(this.player.health), hunger: Math.round(this.player.hunger),
-      madness: Math.round(this.player.madness * 100) / 100,
-      madnessResistance: Math.round(this.player.madnessResistance * 100) / 100,
-      madnessState: this.getMadnessStage().state, attack: this.getAttackDamage(),
-      meat: this.player.loot.monsterMeat.length,
-      wood: this.save.world?.inventory?.wood || 0,
-      stone: this.save.world?.inventory?.stone || 0,
-      sceneMadness: this.sceneMadness, turn: this.turn, message: this.message,
-      position: `${this.player.x},${this.player.y}`, interaction: this.getInteraction()
-    };
+    return { health: Math.round(this.player.health), hunger: Math.round(this.player.hunger), madness: Math.round(this.player.madness * 100) / 100, madnessResistance: Math.round(this.player.madnessResistance * 100) / 100, madnessState: this.getMadnessStage().state, attack: this.getAttackDamage(), meat: this.player.loot.monsterMeat.length, sceneMadness: this.sceneMadness, turn: this.turn, message: this.message, position: `${this.player.x},${this.player.y}`, interaction: this.getInteraction() };
   }
 
   setMessage(message) { this.message = message; }
@@ -1050,17 +906,9 @@ export class GridExplorationRuntime {
     const viewportTiles = this.tiles.filter((tile) => tile.x >= camera.x && tile.y >= camera.y && tile.x < camera.x + this.viewWidth && tile.y < camera.y + this.viewHeight);
     viewportTiles.forEach((tile) => {
       const px = (tile.x - camera.x) * size, py = (tile.y - camera.y) * size;
-      const terrainColors = {
-        grass: '#344b39', dirt: '#493f31', forest: '#203b2c', water: '#162f38',
-        shallow_water: '#28505a', rock: '#353a37', mud: '#3d3830', corrupted: '#412c3e',
-        ground: '#293d35', obstacle: '#15221e'
-      };
-      ctx.fillStyle = terrainColors[tile.terrainId] || (tile.walkable ? '#293d35' : '#15221e');
-      ctx.fillRect(px, py, size, size);
+      ctx.fillStyle = tile.walkable ? '#293d35' : '#15221e'; ctx.fillRect(px, py, size, size);
       this.drawGroundTexture(px, py, size, tile);
-      this.drawDynamicCorruption(px, py, size, tile);
     });
-    this.drawRelicSafetyFields(camera);
     this.drawSubtleGrid(camera, viewportTiles);
     this.drawEnemyVisionCones(camera);
     viewportTiles.forEach((tile) => {
@@ -1068,8 +916,6 @@ export class GridExplorationRuntime {
       const content = tile.visibility === 'visible' ? this.contentAt(tile.x, tile.y) : tile.rememberedContent;
       const memory = tile.visibility === 'explored';
       if (content?.extract) this.drawExtract(px, py, size, memory);
-      if (content?.resource) this.drawWorldResource(px, py, size, content.resource, memory);
-      if (content?.relic) this.drawWorldRelic(px, py, size, content.relic, memory);
       if (content?.corpse && (tile.visibility === 'visible' || fog.showCorpseMemory)) this.drawCorpse(px, py, size, memory);
       if (content?.enemy && (tile.visibility === 'visible' || fog.showEnemyMemory)) this.drawEnemy(px, py, size, content.enemy, memory);
       if (memory) {
@@ -1090,84 +936,6 @@ export class GridExplorationRuntime {
     ctx.beginPath();
     ctx.ellipse(px + size * (.34 + noise * .08), py + size * .58, size * .34, size * .12, noise * .8, 0, Math.PI * 2);
     ctx.fill();
-  }
-
-  drawDynamicCorruption(px, py, size, tile) {
-    const dynamic = getDynamicCorruption(this.save.world, tile.x, tile.y);
-    if (dynamic <= 0) return;
-    const alpha = dynamic <= 25 ? .07 : dynamic <= 50 ? .11 : dynamic <= 100 ? .16 : .22;
-    const ctx = this.ctx;
-    ctx.save();
-    ctx.fillStyle = `rgba(92,24,77,${alpha})`;
-    ctx.fillRect(px, py, size, size);
-    ctx.strokeStyle = `rgba(151,57,91,${Math.min(.28, alpha + .05)})`;
-    ctx.lineWidth = Math.max(1, size * .035);
-    ctx.beginPath();
-    ctx.moveTo(px + size * .16, py + size * .74);
-    ctx.bezierCurveTo(px + size * .34, py + size * .52, px + size * .55, py + size * .88, px + size * .84, py + size * .6);
-    ctx.stroke();
-    ctx.restore();
-  }
-
-  drawRelicSafetyFields(camera) {
-    if (!this.world?.relics?.length) return;
-    const ctx = this.ctx, size = this.tileSize;
-    ctx.save();
-    for (const relic of this.world.relics) {
-      const radius = relic.safetyRadius ?? relic.radius;
-      const x = (relic.x - camera.x + .5) * size;
-      const y = (relic.y - camera.y + .5) * size;
-      const outerRadius = (radius + .75) * size;
-      if (x + outerRadius < 0 || y + outerRadius < 0 || x - outerRadius > this.canvas.width || y - outerRadius > this.canvas.height) continue;
-      const glow = ctx.createRadialGradient(x, y, size * .35, x, y, outerRadius);
-      glow.addColorStop(0, 'rgba(174,240,213,.12)');
-      glow.addColorStop(.58, 'rgba(137,211,187,.065)');
-      glow.addColorStop(1, 'rgba(105,178,158,0)');
-      ctx.fillStyle = glow;
-      ctx.fillRect(Math.max(0, x - outerRadius), Math.max(0, y - outerRadius), outerRadius * 2, outerRadius * 2);
-    }
-    ctx.restore();
-  }
-
-  drawWorldResource(px, py, size, resource, memory) {
-    const ctx = this.ctx;
-    ctx.save();
-    ctx.globalAlpha = memory ? .42 : 1;
-    if (resource.type === 'tree') {
-      ctx.fillStyle = '#293023';
-      ctx.fillRect(px + size * .45, py + size * .48, size * .1, size * .34);
-      ctx.fillStyle = '#61845b';
-      ctx.beginPath();
-      ctx.arc(px + size * .5, py + size * .38, size * .25, 0, Math.PI * 2);
-      ctx.fill();
-    } else {
-      ctx.fillStyle = '#89908b';
-      ctx.beginPath();
-      ctx.moveTo(px + size * .22, py + size * .72);
-      ctx.lineTo(px + size * .33, py + size * .35);
-      ctx.lineTo(px + size * .66, py + size * .26);
-      ctx.lineTo(px + size * .8, py + size * .7);
-      ctx.closePath();
-      ctx.fill();
-    }
-    ctx.restore();
-  }
-
-  drawWorldRelic(px, py, size, relic, memory) {
-    const ctx = this.ctx;
-    ctx.save();
-    ctx.globalAlpha = memory ? .5 : 1;
-    ctx.shadowColor = '#9ce7d0';
-    ctx.shadowBlur = size * .35;
-    ctx.fillStyle = '#bdf6e2';
-    ctx.beginPath();
-    ctx.moveTo(px + size * .5, py + size * .12);
-    ctx.lineTo(px + size * .72, py + size * .5);
-    ctx.lineTo(px + size * .5, py + size * .88);
-    ctx.lineTo(px + size * .28, py + size * .5);
-    ctx.closePath();
-    ctx.fill();
-    ctx.restore();
   }
 
   drawSubtleGrid(camera, tiles) {

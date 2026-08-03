@@ -1,5 +1,9 @@
 # 《雾下余粮》V2 后续路线图
 
+> **Archived / Historical**
+>
+> 该文档描述 `archive/v2-world` 分支中的连续世界方向，不代表当前 `main` 的游戏规则。
+
 > 本文档只定义版本方向、目标和边界，不代表对应功能已经实现。
 > 当前事实以 [`current-game-status.md`](./current-game-status.md) 和实际代码为准。
 

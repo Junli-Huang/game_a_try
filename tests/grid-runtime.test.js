@@ -16,10 +16,6 @@ function createRuntime() {
   return runtime;
 }
 
-function addRelicSafety(runtime, x = 5, y = 5, safetyRadius = 2) {
-  runtime.world = { relics: [{ id: 'test-relic', x, y, radius: 1, safetyRadius }] };
-}
-
 test('successful movement emits one footstep and blocked movement stays silent', () => {
   const events = [], runtime = createRuntime();
   runtime.callbacks.onAudioEvent = (id) => events.push(id);
@@ -98,57 +94,6 @@ test('enemy warns through Alert and AttackIntent before starting battle', () => 
   assert.deepEqual(notices, ['alert', 'chase', 'attack-intent']);
   runtime.updateMonster(enemy);
   assert.equal(runtime.mode, 'BATTLE');
-});
-
-test('wander movement never enters a silent relic safety area', () => {
-  const runtime = createRuntime();
-  addRelicSafety(runtime, 5, 5, 2);
-  runtime.player = { ...runtime.player, x: 15, y: 15 };
-  const base = runtime.config.monsters[1];
-  const config = { ...base, actionChance: 1, wanderRadius: 6, vision: { ...base.vision, enabled: false } };
-  const enemy = {
-    id: 'safe-wander', config, x: 8, y: 5, homeX: 8, homeY: 5,
-    health: config.health, state: 'Wander', facing: 'west', cooldownTurns: 0
-  };
-  runtime.monsters.push(enemy);
-  runtime.random = () => 0;
-  for (let turn = 0; turn < 20; turn += 1) {
-    runtime.updateMonster(enemy);
-    assert.equal(runtime.isInsideRelicSafety(enemy), false);
-  }
-});
-
-test('chase and attack intent stop at the relic boundary and return home', () => {
-  const runtime = createRuntime();
-  addRelicSafety(runtime, 5, 5, 2);
-  runtime.player = { ...runtime.player, x: 5, y: 5 };
-  const base = runtime.config.monsters[2];
-  const config = {
-    ...base, actionChance: 1, maxChaseDistance: 20, maxHomeDistance: 20,
-    vision: { ...base.vision, enabled: false }
-  };
-  const enemy = {
-    id: 'safe-chase', config, x: 8, y: 5, homeX: 10, homeY: 5,
-    health: config.health, state: 'Chase', facing: 'west', cooldownTurns: 0,
-    lastSeenPlayerPosition: { x: 5, y: 5 }
-  };
-  runtime.monsters.push(enemy);
-  runtime.random = () => 0;
-  runtime.updateMonster(enemy);
-  assert.deepEqual({ x: enemy.x, y: enemy.y }, { x: 9, y: 5 });
-  assert.equal(enemy.state, 'Return');
-  assert.equal(enemy.intent, null);
-
-  enemy.x = 8;
-  enemy.homeX = 10;
-  enemy.state = 'AttackIntent';
-  enemy.intent = { action: 'attackPlayer', dx: -1, dy: 0 };
-  enemy.lastSeenPlayerPosition = { x: 5, y: 5 };
-  runtime.updateMonster(enemy);
-  assert.equal(runtime.mode, 'OUTDOOR_EXPLORATION');
-  assert.equal(enemy.state, 'Return');
-  assert.equal(enemy.intent, null);
-  assert.equal(runtime.isInsideRelicSafety(enemy), false);
 });
 
 test('a player behind an adjacent enemy is not detected', () => {

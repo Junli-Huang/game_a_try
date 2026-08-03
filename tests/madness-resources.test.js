@@ -62,6 +62,22 @@ test('legacy shelter and outdoor meat counts migrate without loss', () => {
   delete globalThis.localStorage;
 });
 
+test('V2 world save is replaced by a clean expedition save without crashing', () => {
+  const config = cloneDefaultConfig();
+  let persisted = null;
+  globalThis.localStorage = {
+    getItem: (key) => key === SAVE_STORAGE_KEY ? JSON.stringify({ world: { worldId: 'silent-relic-v2' }, health: 17 }) : null,
+    setItem: (key, value) => { if (key === SAVE_STORAGE_KEY) persisted = JSON.parse(value); },
+    removeItem() {}
+  };
+  const migrated = loadSave(config);
+  assert.equal(migrated.health, config.player.health);
+  assert.equal(migrated.activeExpedition, null);
+  assert.equal(migrated.migrationNotice, 'v2-world-reset');
+  assert.deepEqual(persisted, migrated);
+  delete globalThis.localStorage;
+});
+
 test('environment pollution consumes resistance first and sends only overflow to madness', () => {
   const player = { madnessResistance: 0.04, madness: 7 };
   const result = applyEnvironmentalPollution(player, 0.1, 100);
